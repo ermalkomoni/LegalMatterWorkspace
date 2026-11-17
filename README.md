@@ -1,20 +1,20 @@
 # Amanet backend
 
-.NET 10 backend for the legal matter workspace assessment. Includes Admin authentication, client records, and matter management.
+.NET 10 backend for the legal matter workspace assessment. Includes Admin authentication, client records, matter management, tasks, internal notes, and deadlines.
 
 ## Structure
 
 | Project | Responsibility |
 | --- | --- |
-| Amanet.Core | Client, matter and activity entities and enums |
+| Amanet.Core | Client, matter, task, note, deadline and activity entities and enums |
 | Amanet.Application | DTOs, service contracts, commands, queries and validation |
 | Amanet.Infrastructure | EF Core/PostgreSQL, Identity, authentication and seeding |
 | Amanet.API | Controllers, HTTP configuration and Swagger |
-| Amanet.Tests | Health/Swagger smoke checks and focused client/matter integration tests |
+| Amanet.Tests | Health/Swagger smoke checks and focused matter task/note/deadline integration tests |
 
 Controllers inherit `BaseController` for API version `1.0` and `/api/v{version}/[controller]` routes. The default and fallback policies require the Admin role, including for new controllers. Login and health explicitly allow anonymous access. Public-link endpoints will be added later.
 
-Identity users and roles have integer IDs. Migrations include Identity, clients, matters and matter activities, with no embedded credentials. Private documents will be stored outside the web root; static-file middleware is not enabled.
+Identity users and roles have integer IDs. Migrations include Identity, clients, matters, matter activities, tasks, internal notes and deadlines, with no embedded credentials. Private documents will be stored outside the web root; static-file middleware is not enabled.
 
 ## Run locally
 
@@ -124,7 +124,7 @@ HTTP failures use ProblemDetails with a `traceId`; validation failures also incl
 
 ## Client and matter management
 
-All endpoints below require an Admin Bearer token. There are no hard-delete endpoints.
+All endpoints below require an Admin Bearer token. Clients and matters have no hard-delete endpoints.
 
 | Method | Endpoint | Purpose |
 | --- | --- | --- |
@@ -154,9 +154,30 @@ Archived matters and their history remain readable, but updates return `409`. `M
 
 Apply the new migration with the same `dotnet ef database update` command in the setup section.
 
+## Matter tasks, internal notes, and deadlines
+
+All routes below require an Admin Bearer token and are nested under `/api/v1/matters/{matterId}`.
+
+| Method | Endpoint suffix | Purpose |
+| --- | --- | --- |
+| GET / POST | `/tasks`, `/notes`, `/deadlines` | List or create items |
+| GET / PUT / DELETE | `/tasks/{id}`, `/notes/{id}`, `/deadlines/{id}` | Read, edit or delete an item |
+| POST | `/tasks/{id}/complete`, `/tasks/{id}/reopen` | Complete or reopen a task |
+| POST | `/deadlines/{id}/complete` | Complete a deadline |
+
+Task requests contain `title` (maximum 200 characters), optional `description` (maximum 5000), and optional `dueDate`. Deadline requests contain `title` (maximum 200) and required `date`. Dates use `YYYY-MM-DD`. New items have `Pending` status; completing changes it to `Completed`. Edits preserve the current status.
+
+Task and deadline responses include `isOverdue`: a pending item is overdue only when its date is earlier than the current UTC date. Today, future dates, undated tasks, and completed items are not overdue. Lists return arrays sorted by ID descending.
+
+Note requests contain only `text` (maximum 10000 characters). Responses include the original author's integer `authorId`, taken from the authenticated Admin, and UTC `createdAtUtc` / `updatedAtUtc` timestamps. Editing preserves the author and creation timestamp. Note text is restricted to the dedicated Admin note DTO; matter DTOs and activity descriptions do not contain it. Note activity references the note's ID, including after deletion. No request-body or sensitive EF parameter logging is enabled. Future public-link DTOs must explicitly project their permitted fields and exclude internal notes.
+
+Missing items and IDs belonging to another matter return `404`. Archived matters remain readable; all nested writes return `409`. Meaningful changes and their activity commit atomically, including creates that obtain an item ID before recording activity. Unchanged edits and repeated completion/reopening add no events. Concurrent writes, including an archive racing a nested write, return `409`; reload before retrying.
+
+Apply the `MatterTasksNotesDeadlines` migration using the migration command in the setup section before using these endpoints.
+
 ## Tests
 
-Feature 3 tests use the existing `postgres-test` service on port `54330`, database `amanet_test`. They apply the real migrations and create fictional records only in that separate test database. No development data is used, and no Admin password is required. Test JWT keys are generated at runtime. The service uses temporary storage.
+Matter task/note/deadline integration tests use the existing `postgres-test` service on port `54330`, database `amanet_test`. They apply the real migrations and create fictional records only in that separate test database. No development data is used, and no Admin password is required. Test JWT keys are generated at runtime. The service uses temporary storage.
 
 ```powershell
 docker compose --profile test up -d --wait postgres-test
@@ -164,7 +185,7 @@ dotnet test Amanet.sln --no-restore
 docker compose --profile test stop postgres-test
 ```
 
-The focused tests cover client/matter create/read/update, missing records, validation, duplicate references (including concurrent requests), search/filter/pagination, archive/restore, archived write rejection, and transaction rollback when activity recording fails. There are no authentication-flow tests. To run only the database-free health and Swagger checks, use `dotnet test Amanet.sln --filter FullyQualifiedName~ApiIntegrationTests`.
+The focused tests cover task/note/deadline create/read/edit/list/delete, completion/reopening, UTC overdue rules, optional task fields, note authorship/timestamps, note activity privacy, validation, nested ownership, Admin-only access, archived write rejection, unchanged operations, and transaction rollback when activity persistence fails. There are no authentication-flow tests. To run only the database-free health and Swagger checks, use `dotnet test Amanet.sln --filter FullyQualifiedName~Amanet.Tests.ApiIntegrationTests`.
 
 Dependency versions are pinned in project files and lock files. For a package update, restore with `--force-evaluate` and review the lock-file changes. To check for known vulnerabilities:
 

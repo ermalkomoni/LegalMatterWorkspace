@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
@@ -14,11 +15,14 @@ public sealed class AmanetApiFactory : WebApplicationFactory<Program>
             .AddJsonFile("appsettings.Testing.json")
             .Build();
 
-        // Supply configuration before Program registers infrastructure services.
+        // Startup configuration only; the health and Swagger checks do not access the database.
         builder.ConfigureHostConfiguration(configuration =>
             configuration.AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["ConnectionStrings:DefaultConnection"] = testConfiguration.GetConnectionString("TestDatabase")
+                ["ConnectionStrings:DefaultConnection"] = testConfiguration.GetConnectionString("TestDatabase"),
+                ["Jwt:Issuer"] = "amanet-tests",
+                ["Jwt:Audience"] = "amanet-tests",
+                ["Jwt:SigningKey"] = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
             }));
         return base.CreateHost(builder);
     }

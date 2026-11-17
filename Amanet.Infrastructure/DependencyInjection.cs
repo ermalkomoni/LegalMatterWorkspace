@@ -55,6 +55,9 @@ public static class DependencyInjection
         services.AddScoped<IClientService, ClientService>();
         services.AddScoped<IMatterService, MatterService>();
         services.AddScoped<IMatterActivityService, MatterActivityService>();
+        services.AddScoped<IMatterTaskService, MatterTaskService>();
+        services.AddScoped<IMatterNoteService, MatterNoteService>();
+        services.AddScoped<IMatterDeadlineService, MatterDeadlineService>();
 
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             .AddJwtBearer(bearer =>

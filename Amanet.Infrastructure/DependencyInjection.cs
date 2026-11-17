@@ -1,7 +1,12 @@
+using Amanet.Application.Services;
 using Amanet.Infrastructure.Data;
+using Amanet.Infrastructure.Identity;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.IdentityModel.Tokens;
 
 namespace Amanet.Infrastructure;
 
@@ -18,6 +23,58 @@ public static class DependencyInjection
         }
 
         services.AddDbContext<ApplicationDbContext>(options => options.UseNpgsql(connectionString));
+        services.AddIdentityCore<ApplicationUser>(options =>
+        {
+            options.User.RequireUniqueEmail = true;
+            options.Password.RequiredLength = 12;
+            options.Password.RequireDigit = true;
+            options.Password.RequireLowercase = true;
+            options.Password.RequireUppercase = true;
+            options.Password.RequireNonAlphanumeric = true;
+            options.Lockout.AllowedForNewUsers = true;
+            options.Lockout.MaxFailedAccessAttempts = 5;
+            options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(15);
+        })
+            .AddRoles<IdentityRole<int>>()
+            .AddSignInManager()
+            .AddEntityFrameworkStores<ApplicationDbContext>();
+
+        var jwt = configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>();
+        if (jwt is null || string.IsNullOrWhiteSpace(jwt.Issuer) ||
+            string.IsNullOrWhiteSpace(jwt.Audience) || !jwt.HasValidSigningKey())
+        {
+            throw new InvalidOperationException(
+                "Configure Jwt:Issuer, Jwt:Audience and Jwt:SigningKey (base64 of at least 32 random bytes).");
+        }
+
+        services.Configure<JwtOptions>(configuration.GetSection(JwtOptions.SectionName));
+        services.Configure<AdminSeedOptions>(configuration.GetSection(AdminSeedOptions.SectionName));
+        services.AddScoped<AdminSeeder>();
+        services.AddScoped<IAdminAuthenticationService, AdminAuthenticationService>();
+
+        services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+            .AddJwtBearer(bearer =>
+            {
+                bearer.MapInboundClaims = false;
+                bearer.IncludeErrorDetails = false;
+                bearer.SaveToken = false;
+                bearer.TokenValidationParameters = new TokenValidationParameters
+                {
+                    ValidateIssuer = true,
+                    ValidIssuer = jwt.Issuer,
+                    ValidateAudience = true,
+                    ValidAudience = jwt.Audience,
+                    ValidateIssuerSigningKey = true,
+                    IssuerSigningKey = new SymmetricSecurityKey(Convert.FromBase64String(jwt.SigningKey)),
+                    ValidateLifetime = true,
+                    RequireExpirationTime = true,
+                    RequireSignedTokens = true,
+                    ValidAlgorithms = [SecurityAlgorithms.HmacSha256],
+                    ClockSkew = TimeSpan.Zero,
+                    NameClaimType = "sub",
+                    RoleClaimType = "role"
+                };
+            });
         return services;
     }
 }

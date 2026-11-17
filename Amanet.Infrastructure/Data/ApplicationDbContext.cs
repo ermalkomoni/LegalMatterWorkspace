@@ -12,6 +12,9 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
     public DbSet<Client> Clients => Set<Client>();
     public DbSet<Matter> Matters => Set<Matter>();
     public DbSet<MatterActivity> MatterActivities => Set<MatterActivity>();
+    public DbSet<MatterTask> MatterTasks => Set<MatterTask>();
+    public DbSet<MatterNote> MatterNotes => Set<MatterNote>();
+    public DbSet<MatterDeadline> MatterDeadlines => Set<MatterDeadline>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

@@ -1,6 +1,7 @@
 using Amanet.Application.Services;
 using Amanet.Infrastructure.Data;
 using Amanet.Infrastructure.Identity;
+using Amanet.Infrastructure.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -51,6 +52,9 @@ public static class DependencyInjection
         services.Configure<AdminSeedOptions>(configuration.GetSection(AdminSeedOptions.SectionName));
         services.AddScoped<AdminSeeder>();
         services.AddScoped<IAdminAuthenticationService, AdminAuthenticationService>();
+        services.AddScoped<IClientService, ClientService>();
+        services.AddScoped<IMatterService, MatterService>();
+        services.AddScoped<IMatterActivityService, MatterActivityService>();
 
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             .AddJwtBearer(bearer =>

@@ -1,20 +1,20 @@
 # Amanet backend
 
-.NET 10 backend for the legal matter workspace assessment. Feature 2 adds Admin authentication with ASP.NET Core Identity and JWT Bearer tokens.
+.NET 10 backend for the legal matter workspace assessment. Includes Admin authentication, client records, and matter management.
 
 ## Structure
 
 | Project | Responsibility |
 | --- | --- |
-| Amanet.Core | Business entities and repository contracts as features are added |
+| Amanet.Core | Client, matter and activity entities and enums |
 | Amanet.Application | DTOs, service contracts, commands, queries and validation |
 | Amanet.Infrastructure | EF Core/PostgreSQL, Identity, authentication and seeding |
 | Amanet.API | Controllers, HTTP configuration and Swagger |
-| Amanet.Tests | Basic health and Swagger smoke checks |
+| Amanet.Tests | Health/Swagger smoke checks and focused client/matter integration tests |
 
 Controllers inherit `BaseController` for API version `1.0` and `/api/v{version}/[controller]` routes. The default and fallback policies require the Admin role, including for new controllers. Login and health explicitly allow anonymous access. Public-link endpoints will be added later.
 
-Identity users and roles have integer IDs. The initial migration contains Identity tables only, with no embedded credentials. Private documents will be stored outside the web root; static-file middleware is not enabled.
+Identity users and roles have integer IDs. Migrations include Identity, clients, matters and matter activities, with no embedded credentials. Private documents will be stored outside the web root; static-file middleware is not enabled.
 
 ## Run locally
 
@@ -122,13 +122,49 @@ There is no registration, refresh token, password reset or client-account API. T
 
 HTTP failures use ProblemDetails with a `traceId`; validation failures also include an `errors` dictionary. Missing/invalid tokens return `401`, and authenticated non-Admins receive `403`.
 
+## Client and matter management
+
+All endpoints below require an Admin Bearer token. There are no hard-delete endpoints.
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| GET / POST | `/api/v1/clients` | List/search or create clients |
+| GET / PUT | `/api/v1/clients/{id}` | Read or update a client |
+| GET / POST | `/api/v1/matters` | List/search or create matters |
+| GET / PUT | `/api/v1/matters/{id}` | Read or update a matter |
+| POST | `/api/v1/matters/{id}/archive` | Archive a matter |
+| POST | `/api/v1/matters/{id}/restore` | Restore a matter |
+| GET | `/api/v1/matters/{id}/activities` | Read the dated activity history |
+
+List endpoints accept `search`, `page` (default 1), and `pageSize` (default 20, maximum 100). Invalid pagination returns `400`. Responses contain `items`, `totalCount`, `page`, and `pageSize`. Search is case-insensitive and treats search text literally. Clients sort by name then ID; matters sort by opened date descending then ID descending; activities sort by timestamp descending then ID descending.
+
+Matter lists also accept `clientId`, `status`, `priority`, and `archiveState`. Statuses are `Open`, `InProgress`, `OnHold`, `Closed`; priorities are `Low`, `Normal`, `High`, `Urgent`. JSON uses these enum names. `archiveState` is `Active` by default; use `Archived` for only archived matters or `All` to include both. For example:
+
+```text
+/api/v1/matters?clientId=1&status=InProgress&priority=High&archiveState=All&pageSize=20
+```
+
+Client requests contain `name`, `email`, optional `phone`, and optional `postalAddress`. Matter requests contain `referenceNumber`, `title`, `description`, `primaryClientId`, `status`, `priority`, `openedDate`, and optional `targetCloseDate`. Use fictional clients and matters, such as Alex Example and a fictional lease review. Business dates use `YYYY-MM-DD`; event timestamps are UTC.
+
+References are trimmed, stored uppercase, and protected by a PostgreSQL unique index. Duplicate references return `409`, including concurrent creation. Missing clients/matters return `404`; a target-close date before the opened date returns `400`.
+
+Creation, meaningful updates, archive and restore record activity in the same transaction. An unchanged update or repeated archive/restore does not add another event. Concurrent matter writes return `409`; reload before retrying.
+
+Archived matters and their history remain readable, but updates return `409`. `MatterRules.EnsureWritable` is the shared rule for future task, document and external-link actions. Link infrastructure is not implemented yet: future archive-time revocations must be added before the existing save so they commit atomically. Restore changes only the matter and must never reactivate revoked links.
+
+Apply the new migration with the same `dotnet ef database update` command in the setup section.
+
 ## Tests
 
-The remaining smoke checks verify health and Swagger availability. They do not connect to a database, seed accounts or exercise authentication. Docker is not required.
+Feature 3 tests use the existing `postgres-test` service on port `54330`, database `amanet_test`. They apply the real migrations and create fictional records only in that separate test database. No development data is used, and no Admin password is required. Test JWT keys are generated at runtime. The service uses temporary storage.
 
 ```powershell
+docker compose --profile test up -d --wait postgres-test
 dotnet test Amanet.sln --no-restore
+docker compose --profile test stop postgres-test
 ```
+
+The focused tests cover client/matter create/read/update, missing records, validation, duplicate references (including concurrent requests), search/filter/pagination, archive/restore, archived write rejection, and transaction rollback when activity recording fails. There are no authentication-flow tests. To run only the database-free health and Swagger checks, use `dotnet test Amanet.sln --filter FullyQualifiedName~ApiIntegrationTests`.
 
 Dependency versions are pinned in project files and lock files. For a package update, restore with `--force-evaluate` and review the lock-file changes. To check for known vulnerabilities:
 

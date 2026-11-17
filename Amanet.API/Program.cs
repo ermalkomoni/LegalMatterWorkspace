@@ -1,3 +1,4 @@
+using System.Text.Json.Serialization;
 using Amanet.API.Middleware;
 using Amanet.Application;
 using Amanet.Application.Services;
@@ -37,7 +38,8 @@ builder.Services.AddRateLimiter(options =>
             title: "Too many login attempts. Try again later.").ExecuteAsync(context.HttpContext);
     };
 });
-builder.Services.AddControllers();
+builder.Services.AddControllers().AddJsonOptions(options =>
+    options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter(allowIntegerValues: false)));
 builder.Services.AddApiVersioning(options =>
 {
     options.DefaultApiVersion = new ApiVersion(1, 0);

@@ -1,3 +1,4 @@
+using Amanet.Core.Entities;
 using Amanet.Infrastructure.Identity;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
@@ -8,6 +9,10 @@ namespace Amanet.Infrastructure.Data;
 public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> options)
     : IdentityDbContext<ApplicationUser, IdentityRole<int>, int>(options)
 {
+    public DbSet<Client> Clients => Set<Client>();
+    public DbSet<Matter> Matters => Set<Matter>();
+    public DbSet<MatterActivity> MatterActivities => Set<MatterActivity>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);

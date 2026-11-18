@@ -17,6 +17,8 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
     public DbSet<MatterDeadline> MatterDeadlines => Set<MatterDeadline>();
     public DbSet<MatterDocument> MatterDocuments => Set<MatterDocument>();
     public DbSet<DocumentVersion> DocumentVersions => Set<DocumentVersion>();
+    public DbSet<ExternalRequest> ExternalRequests => Set<ExternalRequest>();
+    public DbSet<EmailDeliveryAttempt> EmailDeliveryAttempts => Set<EmailDeliveryAttempt>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

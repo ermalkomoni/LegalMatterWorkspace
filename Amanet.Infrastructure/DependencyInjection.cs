@@ -1,5 +1,6 @@
 using Amanet.Application.Services;
 using Amanet.Infrastructure.Data;
+using Amanet.Infrastructure.Email;
 using Amanet.Infrastructure.Identity;
 using Amanet.Infrastructure.Pdf;
 using Amanet.Infrastructure.Services;
@@ -64,6 +65,12 @@ public static class DependencyInjection
         services.AddScoped<IMatterDeadlineService, MatterDeadlineService>();
         services.AddSingleton<PrivateDocumentStorage>();
         services.AddScoped<IDocumentService, DocumentService>();
+        services.AddOptions<ExternalLinkOptions>().Bind(configuration.GetSection("ExternalLinks"))
+            .Validate(options => options.IsValid(), "Configure a valid ExternalLinks:FrontendBaseUrl and ExpiryDays.")
+            .ValidateOnStart();
+        services.Configure<SmtpOptions>(configuration.GetSection("Smtp"));
+        services.AddScoped<IEmailSender, SmtpEmailSender>();
+        services.AddScoped<IExternalRequestService, ExternalRequestService>();
 
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             .AddJwtBearer(bearer =>

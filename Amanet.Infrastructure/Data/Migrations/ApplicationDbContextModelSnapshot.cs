@@ -119,6 +119,111 @@ namespace Amanet.Infrastructure.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("Amanet.Core.Entities.EmailDeliveryAttempt", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ExternalRequestId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("FailureCode")
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<DateTimeOffset?>("FinishedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("StartedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<string>("Template")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExternalRequestId", "StartedAtUtc");
+
+                    b.ToTable("EmailDeliveryAttempts");
+                });
+
+            modelBuilder.Entity("Amanet.Core.Entities.ExternalRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<DateTimeOffset?>("CompletedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("DocumentVersionId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("ExpiresAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("MatterId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Progress")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("RecipientEmail")
+                        .IsRequired()
+                        .HasMaxLength(254)
+                        .HasColumnType("character varying(254)");
+
+                    b.Property<DateTimeOffset?>("RevokedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("SignedDocumentVersionId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DocumentVersionId");
+
+                    b.HasIndex("MatterId");
+
+                    b.HasIndex("SignedDocumentVersionId");
+
+                    b.ToTable("ExternalRequests");
+                });
+
             modelBuilder.Entity("Amanet.Core.Entities.Matter", b =>
                 {
                     b.Property<int>("Id")
@@ -569,6 +674,38 @@ namespace Amanet.Infrastructure.Data.Migrations
                     b.Navigation("Document");
                 });
 
+            modelBuilder.Entity("Amanet.Core.Entities.EmailDeliveryAttempt", b =>
+                {
+                    b.HasOne("Amanet.Core.Entities.ExternalRequest", "ExternalRequest")
+                        .WithMany("DeliveryAttempts")
+                        .HasForeignKey("ExternalRequestId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("ExternalRequest");
+                });
+
+            modelBuilder.Entity("Amanet.Core.Entities.ExternalRequest", b =>
+                {
+                    b.HasOne("Amanet.Core.Entities.DocumentVersion", null)
+                        .WithMany()
+                        .HasForeignKey("DocumentVersionId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Amanet.Core.Entities.Matter", "Matter")
+                        .WithMany()
+                        .HasForeignKey("MatterId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Amanet.Core.Entities.DocumentVersion", null)
+                        .WithMany()
+                        .HasForeignKey("SignedDocumentVersionId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Matter");
+                });
+
             modelBuilder.Entity("Amanet.Core.Entities.Matter", b =>
                 {
                     b.HasOne("Amanet.Core.Entities.Client", "PrimaryClient")
@@ -690,6 +827,11 @@ namespace Amanet.Infrastructure.Data.Migrations
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("Amanet.Core.Entities.ExternalRequest", b =>
+                {
+                    b.Navigation("DeliveryAttempts");
                 });
 
             modelBuilder.Entity("Amanet.Core.Entities.MatterDocument", b =>

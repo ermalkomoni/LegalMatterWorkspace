@@ -1,20 +1,20 @@
 # Amanet backend
 
-.NET 10 backend for the legal matter workspace assessment. Includes Admin authentication, client records, matter management, tasks, internal notes, and deadlines.
+.NET 10 backend for the legal matter workspace assessment. Includes Admin authentication, client records, matter management, tasks, internal notes, deadlines, and a private PDF document library.
 
 ## Structure
 
 | Project | Responsibility |
 | --- | --- |
-| Amanet.Core | Client, matter, task, note, deadline and activity entities and enums |
+| Amanet.Core | Client, matter, task, note, deadline, document/version and activity entities and enums |
 | Amanet.Application | DTOs, service contracts, commands, queries and validation |
-| Amanet.Infrastructure | EF Core/PostgreSQL, Identity, authentication and seeding |
+| Amanet.Infrastructure | EF Core/PostgreSQL, Identity, private PDF storage, authentication and seeding |
 | Amanet.API | Controllers, HTTP configuration and Swagger |
 | Amanet.Tests | Health/Swagger smoke checks and focused matter task/note/deadline integration tests |
 
 Controllers inherit `BaseController` for API version `1.0` and `/api/v{version}/[controller]` routes. The default and fallback policies require the Admin role, including for new controllers. Login and health explicitly allow anonymous access. Public-link endpoints will be added later.
 
-Identity users and roles have integer IDs. Migrations include Identity, clients, matters, matter activities, tasks, internal notes and deadlines, with no embedded credentials. Private documents will be stored outside the web root; static-file middleware is not enabled.
+Identity users and roles have integer IDs. Migrations include Identity, clients, matters, matter activities, tasks, internal notes, deadlines and document versions, with no embedded credentials. Private documents are stored outside the web root; static-file middleware is not enabled.
 
 ## Run locally
 
@@ -174,6 +174,50 @@ Note requests contain only `text` (maximum 10000 characters). Responses include 
 Missing items and IDs belonging to another matter return `404`. Archived matters remain readable; all nested writes return `409`. Meaningful changes and their activity commit atomically, including creates that obtain an item ID before recording activity. Unchanged edits and repeated completion/reopening add no events. Concurrent writes, including an archive racing a nested write, return `409`; reload before retrying.
 
 Apply the `MatterTasksNotesDeadlines` migration using the migration command in the setup section before using these endpoints.
+
+## Private PDF document library
+
+All document endpoints require an Admin Bearer token. Nested routes start with `/api/v1/matters/{matterId}/documents`.
+
+| Method | Endpoint | Purpose |
+| --- | --- | --- |
+| GET | `/api/v1/documents` | Search all matters' documents; optional `matterId` filter |
+| POST | Nested document collection | Upload a new document and version 1 |
+| GET | `/{documentId}` | Document details |
+| PUT | `/{documentId}` | Edit title and category |
+| GET | `/{documentId}/versions` | Version history |
+| POST | `/{documentId}/versions` | Upload a new immutable version |
+| GET | `/{documentId}/versions/{versionNumber}/file` | Preview inline by default; use `?download=true` for an attachment |
+
+Initial uploads use `multipart/form-data` with `title` (required, maximum 200 characters), optional `category` (maximum 100), and `file`. New-version uploads contain only `file`. Metadata edits use JSON containing `title` and optional `category`. Upload responses contain version metadata and the logical `documentId`.
+
+PDF content is limited to **20 MiB (20,971,520 bytes)**. A 21 MiB request limit leaves room for multipart headers; the storage service independently counts the actual file bytes. Oversized content returns `413`. The PDF signature, document structure, and page content must be readable by PDFsharp. Malformed, unsupported, empty, and password-protected PDFs return `400`, including encrypted PDFs that open with an empty password. The content type is determined by validated PDF bytes and stored as `application/pdf`.
+
+The document list accepts `matterId`, `search`, `page` (default 1), and `pageSize` (default 20, maximum 100), returning items and total counts. Search is case-insensitive across title, category, filenames from any version, and the matter's title/reference. Results sort by updated timestamp descending, then ID descending. Version history sorts by version number descending.
+
+Each logical document holds its title, category, matter, and UTC timestamps. Versions retain their sequential number, original display filename (path components/control characters removed), byte length, SHA-256, source (`AdminUpload`), authenticated uploader's integer ID, and UTC upload timestamp. Versions have no edit/delete endpoints; their persisted fields also reject EF updates. A unique database index enforces version numbers per document. Concurrent writes return `409`; reload and retry the upload. Renaming or recategorizing a document does not change version metadata or bytes.
+
+All document, matter, and version lookups check nested ownership. Mismatched/missing IDs return `404`. Archived matters remain readable; metadata edits and uploads return `409`. Upload metadata and activity are saved in one database transaction. Metadata edits also record activity; unchanged edits do not.
+
+### Private storage and recovery
+
+By default, storage is `private-uploads` under the API content root, outside `wwwroot` and excluded from Git. To use a persistent external directory, set `Documents:StoragePath` through configuration (environment variable `Documents__StoragePath`). Relative paths resolve against the API content root. Storage under the configured web root is rejected. Keep this directory private and mount persistent storage when deploying in a container.
+
+Supplied filenames are display metadata only. Storage uses generated keys, never overwrites an existing key, and never returns keys or filesystem paths in API responses. Only authorized controllers stream content. Preview/download use `application/pdf`, safe inline/attachment filename headers, SHA-256 ETags, last-modified timestamps, `Cache-Control: no-store`, and range processing.
+
+Uploads are written into `.staging`, fully closed and validated, then moved to their final private key before the database save. A failed upload or database save triggers cleanup of its staged and newly published file. The same staging/cleanup path should be used for later generated signature pages so partial generation is never published.
+
+**Filesystem and database operations cannot commit atomically together.** A process crash between file promotion and database commit can leave an orphaned file. A storage failure or ambiguous database commit failure can also require reconciliation. No API serves staging files or discovers files by scanning the directory; a committed version record is required. Missing or wrong-length stored files are unavailable rather than streamed. Back up the database and storage together. During recovery, stop uploads, remove abandoned staging files, and compare final keys with committed version records before removing unreferenced files. Investigate cleanup warnings; there is no background cleanup job.
+
+### PDFsharp and fonts
+
+The cross-platform `PDFsharp` package is pinned to the exact range `[6.2.4]`. The restored package's `.nuspec` declares **MIT** and includes a native `net10.0` asset. Its versioned license is bundled in `Amanet.Infrastructure/Licenses/PDFsharp-6.2.4.txt` and copied to build/publish output. Do not automatically upgrade PDFsharp: newer releases use different licensing terms. Sources: [6.2.4 package](https://www.nuget.org/packages/PDFsharp/6.2.4), [6.2.4 license](https://github.com/empira/PDFsharp/blob/v6.2.4/LICENSE), [current license documentation](https://docs.pdfsharp.net/General/License/License.html).
+
+PDFsharp's default PKCS dependency resolves to a version flagged by NuGet audit. A direct `System.Security.Cryptography.Pkcs` 10.0.15 reference supplies the patched dependency without changing PDFsharp. Dependency lock files include this choice.
+
+Lato Regular and Bold are bundled as assembly resources from the [official Google Fonts repository](https://github.com/google/fonts/tree/main/ofl/lato), downloaded on 2026-11-18, with their SIL Open Font License copied to build/publish output. `BundledFontResolver` is registered at startup and resolves `Lato` without OS fonts; italic uses simulation. Later signature pages should use `BundledFontResolver.FamilyName`.
+
+Apply the `PrivatePdfLibrary` migration with the migration command in the setup section. Feature 5 adds no tests; automated coverage is deferred until the end of the assessment.
 
 ## Tests
 

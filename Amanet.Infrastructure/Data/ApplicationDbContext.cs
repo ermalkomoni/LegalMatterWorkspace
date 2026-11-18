@@ -15,6 +15,8 @@ public sealed class ApplicationDbContext(DbContextOptions<ApplicationDbContext> 
     public DbSet<MatterTask> MatterTasks => Set<MatterTask>();
     public DbSet<MatterNote> MatterNotes => Set<MatterNote>();
     public DbSet<MatterDeadline> MatterDeadlines => Set<MatterDeadline>();
+    public DbSet<MatterDocument> MatterDocuments => Set<MatterDocument>();
+    public DbSet<DocumentVersion> DocumentVersions => Set<DocumentVersion>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

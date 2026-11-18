@@ -12,6 +12,11 @@ public sealed class GlobalExceptionHandler(ILogger<GlobalExceptionHandler> logge
     {
         ProblemDetails problem = exception switch
         {
+            InvalidDocumentException invalidDocument => new ProblemDetails
+            {
+                Status = invalidDocument.TooLarge ? StatusCodes.Status413PayloadTooLarge : StatusCodes.Status400BadRequest,
+                Title = invalidDocument.Message
+            },
             ValidationException validation => new ValidationProblemDetails(validation.Errors
                 .GroupBy(failure => failure.PropertyName)
                 .ToDictionary(group => group.Key,

@@ -24,13 +24,41 @@ public sealed class ExternalRequestConfiguration : IEntityTypeConfiguration<Exte
             .OnDelete(DeleteBehavior.Restrict);
         builder.Property(request => request.TokenHash).IsRequired().HasMaxLength(64);
         builder.Property(request => request.Version).IsRowVersion();
+        builder.Property(request => request.SignerKind).HasConversion<string>().HasMaxLength(20);
+        builder.Property(request => request.SigningConsentText).HasMaxLength(1000);
+        builder.Property(request => request.SigningConsentText).Metadata.SetAfterSaveBehavior(PropertySaveBehavior.Throw);
+        builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(request => request.AdminSignerId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne<MatterDocument>().WithMany().HasForeignKey(request => request.SigningDocumentId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasIndex(request => request.SigningDocumentId).IsUnique();
         builder.HasOne<DocumentVersion>().WithMany().HasForeignKey(request => request.DocumentVersionId)
             .OnDelete(DeleteBehavior.Restrict);
-        builder.HasOne<DocumentVersion>().WithMany().HasForeignKey(request => request.SignedDocumentVersionId)
+        builder.HasOne(request => request.SignedDocumentVersion).WithMany().HasForeignKey(request => request.SignedDocumentVersionId)
             .OnDelete(DeleteBehavior.Restrict);
         builder.Property(request => request.MatterId).Metadata.SetAfterSaveBehavior(PropertySaveBehavior.Throw);
         builder.Property(request => request.Action).Metadata.SetAfterSaveBehavior(PropertySaveBehavior.Throw);
         builder.Property(request => request.DocumentVersionId).Metadata.SetAfterSaveBehavior(PropertySaveBehavior.Throw);
+    }
+}
+
+public sealed class SignedDocumentConfiguration : IEntityTypeConfiguration<SignedDocument>
+{
+    public void Configure(EntityTypeBuilder<SignedDocument> builder)
+    {
+        builder.HasKey(record => record.RequestId);
+        builder.HasIndex(record => record.DocumentId).IsUnique();
+        builder.HasIndex(record => record.FinalVersionId).IsUnique();
+        builder.HasOne(record => record.Request).WithOne().HasForeignKey<SignedDocument>(record => record.RequestId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne(record => record.Document).WithOne().HasForeignKey<SignedDocument>(record => record.DocumentId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne(record => record.SourceVersion).WithMany().HasForeignKey(record => record.SourceVersionId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne(record => record.FinalVersion).WithMany().HasForeignKey(record => record.FinalVersionId).OnDelete(DeleteBehavior.Restrict);
+        builder.HasOne<ApplicationUser>().WithMany().HasForeignKey(record => record.AdminSignerId).OnDelete(DeleteBehavior.Restrict);
+        builder.Property(record => record.SignerKind).HasConversion<string>().HasMaxLength(20);
+        builder.Property(record => record.SignerName).IsRequired().HasMaxLength(200);
+        builder.Property(record => record.SignerEmail).IsRequired().HasMaxLength(254);
+        builder.Property(record => record.ConsentText).IsRequired().HasMaxLength(1000);
+        builder.Property(record => record.SourceSha256).IsRequired().HasMaxLength(64);
+        foreach (var property in builder.Metadata.GetProperties())
+            property.SetAfterSaveBehavior(PropertySaveBehavior.Throw);
     }
 }
 

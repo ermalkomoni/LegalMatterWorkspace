@@ -11,6 +11,7 @@ namespace Amanet.Infrastructure.Storage;
 public sealed class PrivateDocumentStorage
 {
     public const long MaximumBytes = 20 * 1024 * 1024;
+    public const long MaximumSignedBytes = 25 * 1024 * 1024;
     private readonly string root;
     private readonly ILogger<PrivateDocumentStorage> logger;
 
@@ -27,11 +28,22 @@ public sealed class PrivateDocumentStorage
         Directory.CreateDirectory(Path.Combine(root, ".staging"));
     }
 
-    internal async Task<StoredPdf> SaveAsync(Stream content, CancellationToken cancellationToken)
+    internal Task<StoredPdf> SaveAsync(Stream content, CancellationToken cancellationToken)
+    {
+        return WriteAsync(content, MaximumBytes, true, cancellationToken);
+    }
+
+    internal Task<StoredPdf> StageGeneratedAsync(Stream content, CancellationToken cancellationToken)
+    {
+        return WriteAsync(content, MaximumSignedBytes, false, cancellationToken);
+    }
+
+    private async Task<StoredPdf> WriteAsync(Stream content, long maximumBytes, bool publish, CancellationToken cancellationToken)
     {
         var key = Guid.NewGuid().ToString("N") + ".pdf";
         var path = StagingPath(key);
         var created = false;
+        var staged = false;
         try
         {
             long length = 0;
@@ -45,8 +57,8 @@ public sealed class PrivateDocumentStorage
                 while ((read = await content.ReadAsync(buffer, cancellationToken)) > 0)
                 {
                     length += read;
-                    if (length > MaximumBytes)
-                        throw new InvalidDocumentException("PDF files must not exceed 20 MiB.", tooLarge: true);
+                    if (length > maximumBytes)
+                        throw new InvalidDocumentException($"PDF files must not exceed {maximumBytes / 1024 / 1024} MiB.", tooLarge: true);
                     hash.AppendData(buffer, 0, read);
                     await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
                 }
@@ -55,14 +67,27 @@ public sealed class PrivateDocumentStorage
             cancellationToken.ThrowIfCancellationRequested();
             ValidatePdf(path);
             var stored = new StoredPdf(key, length, Convert.ToHexStringLower(hash.GetHashAndReset()));
-            File.Move(path, FinalPath(key), overwrite: false);
+            if (publish)
+                Promote(stored);
+            else
+                staged = true;
             return stored;
         }
         finally
         {
-            if (created)
+            if (created && !staged)
                 TryDelete(path);
         }
+    }
+
+    internal void Promote(StoredPdf stored)
+    {
+        File.Move(StagingPath(stored.Key), FinalPath(stored.Key), overwrite: false);
+    }
+
+    internal void DeleteStaged(string key)
+    {
+        TryDelete(StagingPath(key));
     }
 
     internal Stream OpenRead(string key, long expectedLength)

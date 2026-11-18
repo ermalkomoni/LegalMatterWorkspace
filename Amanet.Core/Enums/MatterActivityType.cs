@@ -7,5 +7,6 @@ public enum MatterActivityType
     NoteCreated, NoteUpdated, NoteDeleted,
     DeadlineCreated, DeadlineUpdated, DeadlineCompleted, DeadlineDeleted,
     DocumentUploaded, DocumentVersionUploaded, DocumentUpdated,
-    ClientDocumentSubmitted, SubmissionAccepted, CorrectionsRequested
+    ClientDocumentSubmitted, SubmissionAccepted, CorrectionsRequested,
+    SigningSent, SigningViewed, SigningStarted, DocumentSigned
 }

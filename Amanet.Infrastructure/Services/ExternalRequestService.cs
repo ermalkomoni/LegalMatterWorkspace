@@ -5,6 +5,7 @@ using Amanet.Application.DTOs.Documents;
 using Amanet.Application.Exceptions;
 using Amanet.Application.Services;
 using Amanet.Core.Entities;
+using Amanet.Core.Enums;
 using Amanet.Infrastructure.Data;
 using Amanet.Infrastructure.Email;
 using FluentValidation.Results;
@@ -14,7 +15,8 @@ using Microsoft.Extensions.Options;
 namespace Amanet.Infrastructure.Services;
 
 public sealed class ExternalRequestService(ApplicationDbContext db, IEmailSender email,
-    IOptions<ExternalLinkOptions> options, IDocumentService documents) : IExternalRequestService
+    IOptions<ExternalLinkOptions> options, IDocumentService documents,
+    IMatterActivityService activities, IAdminNotificationService notifications) : IExternalRequestService
 {
     public async Task<IReadOnlyList<ExternalRequestDto>> ListAsync(int? matterId, DocumentRequestStatus? status,
         CancellationToken cancellationToken)
@@ -71,6 +73,9 @@ public sealed class ExternalRequestService(ApplicationDbContext db, IEmailSender
             RecipientEmail = input.RecipientEmail.Trim(), Title = input.Title.Trim(),
             RecipientName = input.RecipientName.Trim(), Instructions = input.Instructions.Trim(),
             UploadStatus = input.Action == ExternalAction.Upload ? DocumentRequestStatus.AwaitingUpload : null,
+            SignerKind = input.Action == ExternalAction.Sign ? SignerKind.ExternalClient : null,
+            SigningConsentText = input.Action == ExternalAction.Sign ? SigningConsent.Text : null,
+            Progress = input.Action == ExternalAction.Sign ? RequestProgress.Sent : RequestProgress.Pending,
             DocumentVersionId = input.DocumentVersionId, CreatedAtUtc = DateTimeOffset.UtcNow
         };
         db.ExternalRequests.Add(request);
@@ -83,6 +88,8 @@ public sealed class ExternalRequestService(ApplicationDbContext db, IEmailSender
         EnsureSendCanCommit();
         var request = await FindAsync(matterId, requestId, cancellationToken);
         MatterRules.EnsureWritable(request.Matter);
+        if (request.Action == ExternalAction.Sign && request.SignerKind != SignerKind.ExternalClient)
+            throw new ConflictException("Admin signing workflows do not send external links.");
         if (request.Action == ExternalAction.Upload && !CanUpload(request))
             throw new ConflictException("Only requests awaiting an upload or correction can be resent.");
         var selectedTemplate = template ?? InvitationFor(request.Action);
@@ -115,14 +122,23 @@ public sealed class ExternalRequestService(ApplicationDbContext db, IEmailSender
         var request = await db.ExternalRequests.AsNoTracking().Include(item => item.Matter)
             .SingleOrDefaultAsync(item => item.Id == requestId && item.Action == action, cancellationToken);
         if (request is null || request.Matter.ArchivedAtUtc.HasValue || request.RevokedAtUtc.HasValue ||
+            (action == ExternalAction.Sign && (request.SignerKind != SignerKind.ExternalClient || request.ReplacedAtUtc.HasValue ||
+                (request.Progress != RequestProgress.Signed && string.IsNullOrWhiteSpace(request.SigningConsentText)))) ||
             request.ExpiresAtUtc <= DateTimeOffset.UtcNow ||
             !CryptographicOperations.FixedTimeEquals(Convert.FromHexString(request.TokenHash), Hash(token)))
             throw Unavailable();
         if (forSubmission && (request.Action == ExternalAction.Upload ? !CanUpload(request) :
-                request.Progress == RequestProgress.Completed))
+                request.Progress == RequestProgress.Signed))
             throw new ConflictException("This request is not accepting submissions.");
         if (request.Action == ExternalAction.Sign)
+        {
+            var documentId = await db.DocumentVersions.Where(version => version.Id == request.DocumentVersionId &&
+                    version.Document.MatterId == request.MatterId).Select(version => (int?)version.DocumentId)
+                .SingleOrDefaultAsync(cancellationToken);
+            if (!documentId.HasValue || request.SigningDocumentId != documentId)
+                throw Unavailable();
             await documents.EnsureSignableAsync(request.MatterId, request.DocumentVersionId!.Value, cancellationToken);
+        }
         return request;
     }
 
@@ -136,15 +152,22 @@ public sealed class ExternalRequestService(ApplicationDbContext db, IEmailSender
                 .OrderByDescending(submission => submission.DocumentVersion.VersionNumber)
                 .Select(submission => submission.CorrectionExplanation).FirstOrDefaultAsync(cancellationToken)
             : null;
+        var sourceHash = action == ExternalAction.Sign
+            ? await db.DocumentVersions.Where(version => version.Id == request.DocumentVersionId)
+                .Select(version => version.Sha256).SingleAsync(cancellationToken)
+            : null;
         return new PublicRequestContext(request.Id, request.Action, request.Title, request.Progress,
-            request.ExpiresAtUtc, request.Action == ExternalAction.Upload ? CanUpload(request) : request.Progress != RequestProgress.Completed,
-            request.Action == ExternalAction.Sign, request.RecipientName, request.Instructions, request.UploadStatus, correction);
+            request.ExpiresAtUtc, request.Action == ExternalAction.Upload ? CanUpload(request) : request.Progress != RequestProgress.Signed,
+            request.Action == ExternalAction.Sign, request.RecipientName, request.Instructions, request.UploadStatus, correction,
+            request.SigningConsentText, sourceHash,
+            action == ExternalAction.Sign ? request.CreatedAtUtc : null, request.ViewedAtUtc, request.StartedAtUtc,
+            action == ExternalAction.Sign ? request.CompletedAtUtc : null);
     }
 
     public async Task<DocumentFile> OpenPdfAsync(Guid requestId, string? token, CancellationToken cancellationToken)
     {
         var request = await ValidateAsync(requestId, ExternalAction.Sign, token, false, cancellationToken);
-        var versionId = request.Progress == RequestProgress.Completed
+        var versionId = request.Progress == RequestProgress.Signed
             ? request.SignedDocumentVersionId : request.DocumentVersionId;
         var version = await db.DocumentVersions.AsNoTracking().Where(item => item.Id == versionId &&
                 item.Document.MatterId == request.MatterId)
@@ -153,46 +176,50 @@ public sealed class ExternalRequestService(ApplicationDbContext db, IEmailSender
         return await documents.OpenFileAsync(request.MatterId, version.DocumentId, version.VersionNumber, cancellationToken);
     }
 
-    public async Task CompleteAsync(Guid requestId, ExternalAction action, string? token, int? signedDocumentVersionId,
-        CancellationToken cancellationToken)
-    {
-        if (action == ExternalAction.Upload)
-            throw new ConflictException("Document requests are completed by accepting a submission.");
-        var validated = await ValidateAsync(requestId, action, token, true, cancellationToken);
-        var request = await FindAsync(validated.MatterId, requestId, cancellationToken);
-        // Preserve tracked workflow changes, but never complete using an older request/matter version.
-        if (db.Entry(request).Property(item => item.Version).OriginalValue != validated.Version ||
-            db.Entry(request.Matter).Property(item => item.Version).OriginalValue != validated.Matter.Version)
-            throw new ConflictException("The matter or request changed. Reload it and try again.");
-        var originalDocumentId = await db.DocumentVersions.Where(version => version.Id == request.DocumentVersionId)
-            .Select(version => version.DocumentId).SingleAsync(cancellationToken);
-        if (signedDocumentVersionId == request.DocumentVersionId || !await db.DocumentVersions.AnyAsync(version =>
-                version.Id == signedDocumentVersionId && version.DocumentId == originalDocumentId &&
-                version.Document.MatterId == request.MatterId, cancellationToken))
-            throw new ResourceNotFoundException("Signed document version not found.");
-
-        request.Progress = RequestProgress.Completed;
-        request.CompletedAtUtc = DateTimeOffset.UtcNow;
-        request.SignedDocumentVersionId = signedDocumentVersionId;
-        // Also saves workflow changes tracked in this scoped DbContext, in one EF transaction.
-        await SaveAsync(request, cancellationToken);
-    }
-
     private async Task<ExternalRequestDto> RotateAndSendAsync(ExternalRequest request, EmailTemplate template,
         CancellationToken cancellationToken, DateTimeOffset? expiresAtUtc = null)
     {
         var token = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
-        request.TokenHash = Convert.ToHexStringLower(Hash(token));
-        request.ExpiresAtUtc = expiresAtUtc?.ToUniversalTime() ?? DateTimeOffset.UtcNow.AddDays(options.Value.ExpiryDays);
-        request.RevokedAtUtc = null;
         var attempt = new EmailDeliveryAttempt
         {
             Id = Guid.NewGuid(), ExternalRequest = request, Template = template,
             StartedAtUtc = DateTimeOffset.UtcNow, Status = DeliveryStatus.Pending
         };
-        db.EmailDeliveryAttempts.Add(attempt);
-        // Commit request, rotated link and pending attempt BEFORE contacting SMTP.
-        await SaveAsync(request, cancellationToken);
+        // Reserve the unique document slot, including replacement, in the same transaction as the
+        // invitation. Commit before SMTP; no transaction is held during network delivery.
+        await using (var transaction = await db.Database.BeginTransactionAsync(cancellationToken))
+        {
+            if (request.Action == ExternalAction.Sign)
+            {
+                var source = await SigningWorkflow.LockSourceAsync(db, request.MatterId, request.DocumentVersionId!.Value, cancellationToken);
+                await documents.EnsureSignableAsync(request.MatterId, source.Id, cancellationToken);
+                if (db.Entry(request).State == EntityState.Added)
+                {
+                    await SigningWorkflow.ReserveAsync(db, request, source, cancellationToken);
+                    activities.Record(request.Matter, MatterActivityType.SigningSent, $"Signing request #{request.Id} created.");
+                    notifications.RecordSigning(request, source, $"Signing invitation created: {request.Title}.");
+                }
+                else
+                {
+                    // A resend may wait behind signing or replacement. Check the persisted workflow
+                    // after that wait, before extending expiry or clearing revocation.
+                    await db.Entry(request).ReloadAsync(cancellationToken);
+                    await SigningWorkflow.EnsureCurrentAsync(db, request, source.DocumentId, cancellationToken);
+                    if (request.Progress != RequestProgress.Signed && !SigningWorkflow.IsActive(request))
+                        throw new ConflictException("Replace expired or revoked unsigned workflows with a new invitation.");
+                }
+            }
+            var now = DateTimeOffset.UtcNow;
+            if (expiresAtUtc <= now)
+                throw new FluentValidation.ValidationException(
+                    [new ValidationFailure("ExpiresAtUtc", "Expiry must be in the future.")]);
+            request.TokenHash = Convert.ToHexStringLower(Hash(token));
+            request.ExpiresAtUtc = expiresAtUtc?.ToUniversalTime() ?? now.AddDays(options.Value.ExpiryDays);
+            request.RevokedAtUtc = null;
+            db.EmailDeliveryAttempts.Add(attempt);
+            await SaveAsync(request, cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        }
 
         // Finish this bounded synchronous attempt even if the HTTP caller disconnects after commit.
         using var sendTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
@@ -235,6 +262,11 @@ public sealed class ExternalRequestService(ApplicationDbContext db, IEmailSender
         {
             throw new ConflictException("The matter or request changed. Reload it and try again.");
         }
+        catch (DbUpdateException exception) when (exception.InnerException is Npgsql.PostgresException
+            { SqlState: Npgsql.PostgresErrorCodes.UniqueViolation, ConstraintName: "IX_ExternalRequests_SigningDocumentId" })
+        {
+            throw new ConflictException("A signing workflow already exists for this document.");
+        }
     }
 
     private void EnsureSendCanCommit()
@@ -255,7 +287,8 @@ public sealed class ExternalRequestService(ApplicationDbContext db, IEmailSender
                 .Select(submission => new DocumentSubmissionDto(submission.DocumentVersionId, submission.DocumentVersion.DocumentId,
                     submission.DocumentVersion.VersionNumber, submission.DocumentVersion.OriginalFileName,
                     submission.DocumentVersion.UploadedAtUtc, submission.Decision, submission.CorrectionExplanation,
-                    submission.ReviewerId, submission.ReviewedAtUtc)).ToArray());
+                    submission.ReviewerId, submission.ReviewedAtUtc)).ToArray(), request.DocumentVersionId,
+            request.SignerKind, request.ViewedAtUtc, request.StartedAtUtc, request.ReplacedAtUtc);
 
     private static bool CanUpload(ExternalRequest request) => request.UploadStatus is
         DocumentRequestStatus.AwaitingUpload or DocumentRequestStatus.CorrectionsRequested;

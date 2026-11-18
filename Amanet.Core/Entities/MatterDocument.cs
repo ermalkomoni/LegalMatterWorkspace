@@ -10,6 +10,7 @@ public sealed class MatterDocument
     public string Title { get; set; } = string.Empty;
     public string? Category { get; set; }
     public DocumentClassification Classification { get; set; }
+    public DateTimeOffset? SignedAtUtc { get; set; }
     public DateTimeOffset CreatedAtUtc { get; set; }
     public DateTimeOffset UpdatedAtUtc { get; set; }
     public ICollection<DocumentVersion> Versions { get; set; } = [];

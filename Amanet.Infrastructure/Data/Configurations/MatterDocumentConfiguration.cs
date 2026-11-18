@@ -36,7 +36,7 @@ public sealed class DocumentVersionConfiguration : IEntityTypeConfiguration<Docu
         builder.ToTable("DocumentVersions", table =>
         {
             table.HasCheckConstraint("CK_DocumentVersions_Number", "\"VersionNumber\" > 0");
-            table.HasCheckConstraint("CK_DocumentVersions_Length", "\"ByteLength\" > 0 AND \"ByteLength\" <= 20971520");
+            table.HasCheckConstraint("CK_DocumentVersions_Length", "\"ByteLength\" > 0 AND \"ByteLength\" <= 26214400");
         });
         foreach (var property in builder.Metadata.GetProperties())
             property.SetAfterSaveBehavior(PropertySaveBehavior.Throw);

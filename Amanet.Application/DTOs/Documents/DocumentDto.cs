@@ -3,7 +3,8 @@ using Amanet.Core.Entities;
 namespace Amanet.Application.DTOs.Documents;
 
 public sealed record DocumentDto(int Id, int MatterId, string MatterReference, string Title, string? Category,
-    int LatestVersionNumber, DateTimeOffset CreatedAtUtc, DateTimeOffset UpdatedAtUtc, DocumentClassification Classification);
+    int LatestVersionNumber, DateTimeOffset CreatedAtUtc, DateTimeOffset UpdatedAtUtc, DocumentClassification Classification,
+    DateTimeOffset? SignedAtUtc);
 
 public sealed record DocumentVersionDto(int Id, int DocumentId, int VersionNumber, string OriginalFileName,
     string ContentType, long ByteLength, string Sha256, string Source, int? UploaderId, DateTimeOffset UploadedAtUtc);

@@ -1,7 +1,9 @@
 namespace Amanet.Core.Entities;
 
 public enum ExternalAction { Upload, Sign }
-public enum RequestProgress { Pending, Viewed, Started, Completed }
+// Pending/Completed remain for upload-request compatibility; signing uses Sent/Viewed/Started/Signed.
+public enum RequestProgress { Pending, Viewed, Started, Completed, Sent, Signed }
+public enum SignerKind { ExternalClient, Admin }
 public enum EmailTemplate { DocumentRequest, SignatureInvitation, Correction, Reminder }
 public enum DeliveryStatus { Pending, Sent, Failed }
 public enum DocumentRequestStatus { AwaitingUpload, Submitted, CorrectionsRequested, Accepted }
@@ -25,6 +27,15 @@ public sealed class ExternalRequest
     public RequestProgress Progress { get; set; }
     public int? DocumentVersionId { get; set; }
     public int? SignedDocumentVersionId { get; set; }
+    public DocumentVersion? SignedDocumentVersion { get; set; }
+    public SignerKind? SignerKind { get; set; }
+    public string? SigningConsentText { get; set; }
+    public int? AdminSignerId { get; set; }
+    // A unique nullable slot: only the current workflow holds its logical document ID.
+    public int? SigningDocumentId { get; set; }
+    public DateTimeOffset? ReplacedAtUtc { get; set; }
+    public DateTimeOffset? ViewedAtUtc { get; set; }
+    public DateTimeOffset? StartedAtUtc { get; set; }
     public string TokenHash { get; set; } = string.Empty;
     public DateTimeOffset CreatedAtUtc { get; set; }
     public DateTimeOffset ExpiresAtUtc { get; set; }
@@ -32,6 +43,25 @@ public sealed class ExternalRequest
     public DateTimeOffset? CompletedAtUtc { get; set; }
     public uint Version { get; set; }
     public ICollection<EmailDeliveryAttempt> DeliveryAttempts { get; set; } = [];
+}
+
+public sealed class SignedDocument
+{
+    public Guid RequestId { get; set; }
+    public ExternalRequest Request { get; set; } = null!;
+    public int DocumentId { get; set; }
+    public MatterDocument Document { get; set; } = null!;
+    public int SourceVersionId { get; set; }
+    public DocumentVersion SourceVersion { get; set; } = null!;
+    public int FinalVersionId { get; set; }
+    public DocumentVersion FinalVersion { get; set; } = null!;
+    public SignerKind SignerKind { get; set; }
+    public string SignerName { get; set; } = string.Empty;
+    public string SignerEmail { get; set; } = string.Empty;
+    public int? AdminSignerId { get; set; }
+    public DateTimeOffset SignedAtUtc { get; set; }
+    public string ConsentText { get; set; } = string.Empty;
+    public string SourceSha256 { get; set; } = string.Empty;
 }
 
 // One immutable submitted version, with at most one review decision. Corrections create a new row/version.

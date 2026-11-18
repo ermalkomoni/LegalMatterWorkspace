@@ -10,11 +10,15 @@ public sealed class AdminNotificationService(ApplicationDbContext db) : IAdminNo
 {
     public void RecordSubmission(ExternalRequest request, DocumentVersion version)
     {
+        RecordSigning(request, version, $"PDF submitted for review: {request.Title} (version {version.VersionNumber}).");
+    }
+
+    public void RecordSigning(ExternalRequest request, DocumentVersion version, string message)
+    {
         db.AdminNotifications.Add(new AdminNotification
         {
             Matter = request.Matter, ExternalRequest = request, DocumentVersion = version,
-            Message = $"PDF submitted for review: {request.Title} (version {version.VersionNumber}).",
-            CreatedAtUtc = version.UploadedAtUtc
+            Message = message, CreatedAtUtc = DateTimeOffset.UtcNow
         });
     }
 

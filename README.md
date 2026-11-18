@@ -10,7 +10,7 @@
 | Amanet.Application | DTOs, service contracts, commands, queries and validation |
 | Amanet.Infrastructure | EF Core/PostgreSQL, Identity, private PDF storage, authentication and seeding |
 | Amanet.API | Controllers, HTTP configuration and Swagger |
-| Amanet.Tests | Health/Swagger smoke checks and focused external-link regression tests |
+| Amanet.Tests | Health/Swagger smoke checks |
 
 Controllers inherit `BaseController` for API version `1.0` and `/api/v{version}/[controller]` routes. The default and fallback policies require the Admin role, including for new controllers. Login, health, and the explicitly scoped public-link controller allow anonymous access.
 
@@ -195,7 +195,7 @@ PDF content is limited to **20 MiB (20,971,520 bytes)**. A 21 MiB request limit 
 
 The document list accepts `matterId`, `search`, `page` (default 1), and `pageSize` (default 20, maximum 100), returning items and total counts. Search is case-insensitive across title, category, filenames from any version, and the matter's title/reference. Results sort by updated timestamp descending, then ID descending. Version history sorts by version number descending.
 
-Each logical document holds its title, category, matter, and UTC timestamps. Versions retain their sequential number, original display filename (path components/control characters removed), byte length, SHA-256, source (`AdminUpload`), authenticated uploader's integer ID, and UTC upload timestamp. Versions have no edit/delete endpoints; their persisted fields also reject EF updates. A unique database index enforces version numbers per document. Concurrent writes return `409`; reload and retry the upload. Renaming or recategorizing a document does not change version metadata or bytes.
+Each logical document holds its title, category, matter, classification, and UTC timestamps. Versions retain their sequential number, original display filename (path components/control characters removed), byte length, SHA-256, source (`AdminUpload` or `ClientUpload`), and UTC upload timestamp. Admin uploads have the authenticated uploader's integer ID; anonymous client uploads have a null uploader ID and are attributed through their request/submission. Versions have no edit/delete endpoints; their persisted fields also reject EF updates. A unique database index enforces version numbers per document. Concurrent writes return `409`; reload and retry the upload. Renaming or recategorizing a document does not change version metadata or bytes. Client-request documents receive new versions through the request workflow rather than the Admin upload endpoint.
 
 All document, matter, and version lookups check nested ownership. Mismatched/missing IDs return `404`. Archived matters remain readable; metadata edits and uploads return `409`. Upload metadata and activity are saved in one database transaction. Metadata edits also record activity; unchanged edits do not.
 
@@ -221,7 +221,7 @@ Apply the `PrivatePdfLibrary` migration with the migration command in the setup 
 
 ## Scoped external links and SMTP (Feature 6)
 
-This feature supplies shared request/link infrastructure for later upload and signing workflows. A request has one immutable action (`Upload` or `Sign`) and one current link. There are no client accounts, queues, automatic retries, or background workers. Upload submission, review/correction workflow transitions and signature generation remain for the later workflow features; this feature does not expose a public completion shortcut.
+This feature supplies shared request/link infrastructure used by the document request workflow below and later signing workflows. A request has one immutable action (`Upload` or `Sign`) and one current link. There are no client accounts, queues, automatic retries, or background workers. Signature generation remains a later feature; there is no public completion shortcut.
 
 All Admin routes start with `/api/v1/matters/{matterId}/external-requests`:
 
@@ -233,9 +233,9 @@ All Admin routes start with `/api/v1/matters/{matterId}/external-requests`:
 | POST | `/{requestId}/resend` | Rotate the link and synchronously retry/resend/send a reminder or correction |
 | POST | `/{requestId}/revoke` | Revoke the current link; repeated revocation is harmless |
 
-Create JSON contains `action`, `recipientEmail`, `title`, and optional `documentVersionId`. A `Sign` request requires a document version from the same matter; an `Upload` request must omit it. `title` is intended for the recipient and appears in the public context. Resend takes `{}` for the appropriate original invitation, or `{"template":"Reminder"}` / `{"template":"Correction"}`. `DocumentRequest` and `Correction` apply to uploads; `SignatureInvitation` applies to signing; `Reminder` applies to either. A correction email alone does not reopen a completed upload or change workflow progress.
+Create JSON contains `action`, `recipientEmail`, `title`, optional `documentVersionId`, `recipientName`, `instructions`, and optional `expiresAtUtc`. Upload requests require a recipient name and must omit the document version. Signing requests require a signable version from the same matter. `title` and `instructions` are intended for the recipient and appear in public context. Resend takes `{}` for the appropriate original invitation, or `{"template":"Reminder"}` / `{"template":"Correction"}`. Correction emails require an existing `CorrectionsRequested` workflow state; use the version-specific review operation below to request corrections. Resend never changes workflow progress or review decisions.
 
-Tokens contain 256 cryptographically random bits, encoded as 64 lowercase hex characters. Only SHA-256 hashes are saved. Links expire after seven days by default (`ExternalLinks:ExpiryDays`, 1–365). Every explicit send rotates the hash, invalidating the previous token even when the new SMTP attempt fails. Resending explicitly revoked or expired requests creates a fresh link for active matters. Completed uploads cannot be resent or submitted again. Completed signing requests can be resent for read-only access to their final PDF. Delivery attempts never reset `Pending` / `Viewed` / `Started` / `Completed` workflow progress.
+Tokens contain 256 cryptographically random bits, encoded as 64 lowercase hex characters. Only SHA-256 hashes are saved. Links expire after seven days by default (`ExternalLinks:ExpiryDays`, 1–365); initial creation can specify a future `expiresAtUtc` within one year. Every resend/correction rotates the hash and renews the default expiry, invalidating the previous token even when SMTP fails. Resending explicitly revoked or expired requests creates a fresh link for active matters. Upload requests can be resent only in `AwaitingUpload` or `CorrectionsRequested`. Completed signing requests can be resent for read-only access to their final PDF. Delivery attempts never reset workflow progress.
 
 Frontend URLs are generated only for the transient email body:
 
@@ -252,9 +252,9 @@ The frontend must read the fragment and send its token in `X-Link-Token` on each
 | `GET /api/v1/external/sign/{requestId}` | Signing request context |
 | `GET /api/v1/external/sign/{requestId}/file` | Only the request's original PDF before completion, or final signed PDF afterwards |
 
-All public operations require the matching request, action and header token, an unexpired/unrevoked link and an active matter. Invalid, missing, expired, revoked, wrong-action and archived links return the same `404`. Completed requests remain readable through their context; submission guards return `409`. Public context is restricted to request ID, action, recipient-facing title, progress, expiry and capability flags. It excludes matter/client details, notes, email addresses, version IDs and storage keys. Public responses disable caching and referrers. Public calls share a per-remote-IP limit of 30 requests per minute, with no waiting queue; excess calls return `429`.
+All public operations require the matching request, action and header token, an unexpired/unrevoked link and an active matter. Invalid, missing, expired, revoked, wrong-action and archived links return the same `404`. Completed requests remain readable through their context; disallowed submissions return `409`. Public context is restricted to request ID, action, recipient-facing title/name/instructions, progress, upload status, current correction explanation, expiry and capability flags. It excludes unrelated matter/client data, notes, email addresses, version IDs and storage keys. Public responses disable caching and referrers. Public calls share a per-remote-IP limit of 30 requests per minute, with no waiting queue; excess calls return `429`.
 
-Workflow services should compose `IExternalRequestService.ValidateAsync` for **every** public operation. It reads a fresh, untracked snapshot; cached EF entities never authorize an expired, revoked, rotated or archived link. Pass `forSubmission: true` for writes; the guard rejects completed requests. `CompleteAsync` revalidates and saves completion with pending changes in the same scoped `ApplicationDbContext`, while checking the tracked request/matter versions. To generate a new signed document version, workflow services should use an explicit database transaction: save the version to obtain its ID, call `CompleteAsync`, then commit. Signing completion requires a different version of the same logical document; after completion the public file endpoint serves only that final version. Later workflow services must save intermediate progress/document writes using the same matter/request concurrency protection.
+Workflow services should compose `IExternalRequestService.ValidateAsync` for **every** public operation. It reads a fresh, untracked snapshot; cached EF entities never authorize an expired, revoked, rotated or archived link. Pass `forSubmission: true` for writes; the guard enforces the request's workflow state. `CompleteAsync` completes signing only, while document requests finish through acceptance of a specific submission. To generate a new signed document version, signing services should use an explicit database transaction: save the version to obtain its ID, call `CompleteAsync`, then commit. Signing completion requires a different version of the same logical document; after completion the public file endpoint serves only that final version. Signing services must also reuse `IDocumentService.EnsureSignableAsync` to enforce acceptance of client submissions.
 
 ### SMTP configuration and recovery
 
@@ -279,19 +279,53 @@ Admin recovery is explicit: list the matter's requests (including when a creatio
 
 Apply the `ScopedExternalLinks` migration with the setup migration command before using these endpoints.
 
+## Client document requests and review (Feature 7)
+
+One request asks one recipient for one PDF. Create it through the existing nested request collection, for example:
+
+```json
+{
+  "action": "Upload",
+  "recipientName": "Alex Example",
+  "recipientEmail": "alex@example.test",
+  "title": "Lease agreement",
+  "instructions": "Upload a readable PDF of the complete agreement."
+}
+```
+
+`uploadStatus` is separate from link expiry/revocation and SMTP delivery. It follows `AwaitingUpload → Submitted → Accepted`, or `Submitted → CorrectionsRequested → Submitted` when another version is needed. A failed invitation does not discard the request. A failed correction email preserves the review decision and `CorrectionsRequested` state; the Admin can retry with resend. An expired or revoked link does not change the workflow status.
+
+| Method | Route | Purpose |
+| --- | --- | --- |
+| GET | `/api/v1/external-requests?matterId=1&status=Submitted` | Admin list across matters, optionally filtered by matter and upload status |
+| GET | `/api/v1/matters/{matterId}/external-requests?status=Submitted` | Existing nested list with optional status filter |
+| GET | `/api/v1/matters/{matterId}/external-requests/{requestId}` | Admin request details, submissions and their review history |
+| GET | `/api/v1/external/upload/{requestId}` | Public context, status, instructions and current correction explanation |
+| POST | `/api/v1/external/upload/{requestId}` | Public multipart upload with one `file` and `X-Link-Token` |
+| POST | `/api/v1/matters/{matterId}/external-requests/{requestId}/submissions/{versionId}/review` | Accept or request corrections for that exact submission |
+| GET | `/api/v1/notifications?page=1&pageSize=20` | Persisted Admin submission notifications, newest first |
+
+All Admin endpoints require an Admin Bearer token. Reminder/resend and revocation reuse the existing request endpoints. Without an upload-status filter, the shared request lists also include signing requests. To inspect a submitted PDF, use its `documentId` and `versionNumber` from the Admin submission DTO with the existing private document file endpoint; there is no duplicate preview route.
+
+Review uses the submission's **`documentVersionId`**, not its sequential version number. Accept with `{"decision":"Accepted"}`. Request corrections with `{"decision":"CorrectionsRequested","explanation":"Include the missing final page."}`. The explanation is required for corrections and available to the intended client while corrections are outstanding. Each submission can receive one review decision; prior decisions and explanations remain attached to their original versions. Requests in `Submitted` or `Accepted` reject further uploads with `409`; only `AwaitingUpload` and `CorrectionsRequested` allow an upload.
+
+The first upload creates a `ReviewPending` document in the request's matter. Corrections append immutable versions to that same document. Client versions use `ClientUpload` as their source and a null Admin uploader ID. Acceptance changes the classification to `Accepted`. Only the exact accepted submission version is eligible for signing; other versions of that client document are rejected by the shared signing guard. Admin-created documents retain `Standard` classification. Request status/classification cannot be changed through document metadata edits, and the Admin version-upload endpoint cannot bypass client review.
+
+Submission status, document/version metadata, submission history, matter activity and an Admin notification commit in one EF transaction. Review status, the version-bound decision and activity also commit together; corrections include the rotated token and pending delivery attempt in that same commit before SMTP. Upload/review operations own their commit and reject caller-owned or ambient transactions before staging changes or files. Request/matter concurrency tokens reject concurrent uploads, reviews, revocation or archive changes; review lookups also check the persisted unreviewed state so a cached entity cannot overwrite an earlier decision. Archived matter writes are rejected. Public uploads reuse the existing 20 MiB PDF validation, private staging/promotion and failure cleanup. A successful upload returns its committed `Submitted` receipt without another database read or token check that could turn a committed upload into a reported failure. Failure to deliver the response does not delete the stored PDF. The filesystem/database crash-recovery limitation described above still applies.
+
+Notifications are a small persisted Admin inbox: the writer adds a row identifying the request title and version to the submission's unit of work, and the read endpoint provides pagination. There is no notification worker or separate delivery system.
+
+Apply `ClientDocumentRequests` with the setup migration command. It preserves existing tokens/revocations, classifies existing library documents as `Standard`, and maps existing upload links to their initial or previously completed workflow status. No tests were added for Feature 7; validation uses compilation and migration/model checks.
+
 ## Tests
 
-External-link integration tests use the existing `postgres-test` service on port `54330`, database `amanet_test`. They apply the real migrations and create fictional records only in that separate test database. No development data is used, and no Admin password is required. Test JWT keys are generated at runtime. The service uses temporary storage.
+The currently included automated checks cover health and Swagger without accessing PostgreSQL or SMTP. Test JWT keys are generated at runtime. No Admin password is required.
 
 ```powershell
-docker compose --profile test up -d --wait postgres-test
 dotnet test Amanet.sln --no-restore
-docker compose --profile test stop postgres-test
 ```
 
 To run only the database-free health and Swagger checks, use `dotnet test Amanet.sln --filter FullyQualifiedName~Amanet.Tests.ApiIntegrationTests`.
-
-Feature 6 review regression tests use the same separate PostgreSQL test database and a fake `IEmailSender`. They cover fresh validation despite stale tracked entities (revocation, rotation, expiry, archive and completion), revocation after a concurrent resend, preservation of pending workflow changes, concurrency rejection, header-only access and public DTO privacy, uncached errors, transaction rejection without orphaned requests, and Admin discovery/retry of failed deliveries with sanitized errors and useful validation messages. No real SMTP service or development database is used.
 
 Dependency versions are pinned in project files and lock files. For a package update, restore with `--force-evaluate` and review the lock-file changes. To check for known vulnerabilities:
 

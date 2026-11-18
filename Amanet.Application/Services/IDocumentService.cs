@@ -10,6 +10,7 @@ public interface IDocumentService
     Task<DocumentDto> UpdateAsync(int matterId, int documentId, DocumentRequest request, CancellationToken cancellationToken);
     Task<IReadOnlyList<DocumentVersionDto>> VersionsAsync(int matterId, int documentId, CancellationToken cancellationToken);
     Task<DocumentFile> OpenFileAsync(int matterId, int documentId, int versionNumber, CancellationToken cancellationToken);
+    Task EnsureSignableAsync(int matterId, int versionId, CancellationToken cancellationToken);
     Task<DocumentVersionDto> UploadAsync(int matterId, int? documentId, DocumentRequest? request,
         Stream content, string fileName, int uploaderId, CancellationToken cancellationToken);
 }

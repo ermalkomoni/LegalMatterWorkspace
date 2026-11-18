@@ -9,13 +9,13 @@ namespace Amanet.API.Controllers;
 [Route("api/v{version:apiVersion}/matters/{matterId:int}/documents")]
 public sealed class DocumentsController(IDocumentService documents) : BaseController
 {
-    [HttpGet("/api/v{version:apiVersion}/documents")]
-    public Task<PagedResult<DocumentDto>> List([FromQuery] DocumentListQuery query, CancellationToken cancellationToken)
-    {
-        return documents.ListAsync(query, cancellationToken);
-    }
+	[HttpGet("/api/v{version:apiVersion}/documents")]
+	public Task<PagedResult<DocumentDto>> List([FromQuery] DocumentListQuery query, CancellationToken cancellationToken)
+	{
+		return documents.ListAsync(query, cancellationToken);
+	}
 
-    [HttpGet("{documentId:int}")]
+	[HttpGet("{documentId:int}")]
     public Task<DocumentDto> Get(int matterId, int documentId, CancellationToken cancellationToken)
     {
         return documents.GetAsync(matterId, documentId, cancellationToken);

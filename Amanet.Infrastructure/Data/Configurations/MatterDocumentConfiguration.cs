@@ -12,6 +12,7 @@ public sealed class MatterDocumentConfiguration : IEntityTypeConfiguration<Matte
     {
         builder.Property(document => document.Title).IsRequired().HasMaxLength(200);
         builder.Property(document => document.Category).HasMaxLength(100);
+        builder.Property(document => document.Classification).HasConversion<string>().HasMaxLength(20);
         builder.HasOne(document => document.Matter).WithMany().HasForeignKey(document => document.MatterId)
             .OnDelete(DeleteBehavior.Restrict);
     }

@@ -16,12 +16,15 @@ namespace Amanet.Infrastructure.Services;
 public sealed class ExternalRequestService(ApplicationDbContext db, IEmailSender email,
     IOptions<ExternalLinkOptions> options, IDocumentService documents) : IExternalRequestService
 {
-    public async Task<IReadOnlyList<ExternalRequestDto>> ListAsync(int matterId, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<ExternalRequestDto>> ListAsync(int? matterId, DocumentRequestStatus? status,
+        CancellationToken cancellationToken)
     {
-        if (!await db.Matters.AnyAsync(matter => matter.Id == matterId, cancellationToken))
+        if (matterId.HasValue && !await db.Matters.AnyAsync(matter => matter.Id == matterId, cancellationToken))
             throw new ResourceNotFoundException("Matter not found.");
         var requests = await db.ExternalRequests.AsNoTracking().Include(request => request.DeliveryAttempts)
-            .Where(request => request.MatterId == matterId).OrderByDescending(request => request.CreatedAtUtc)
+            .Include(request => request.Submissions).ThenInclude(submission => submission.DocumentVersion).AsSplitQuery()
+            .Where(request => (!matterId.HasValue || request.MatterId == matterId) && (!status.HasValue || request.UploadStatus == status))
+            .OrderByDescending(request => request.CreatedAtUtc)
             .ThenBy(request => request.Id).ToListAsync(cancellationToken);
         return requests.Select(ToDto).ToArray();
     }
@@ -29,6 +32,7 @@ public sealed class ExternalRequestService(ApplicationDbContext db, IEmailSender
     public async Task<ExternalRequestDto> GetAsync(int matterId, Guid requestId, CancellationToken cancellationToken)
     {
         var request = await db.ExternalRequests.AsNoTracking().Include(item => item.DeliveryAttempts)
+            .Include(item => item.Submissions).ThenInclude(submission => submission.DocumentVersion).AsSplitQuery()
             .SingleOrDefaultAsync(item => item.MatterId == matterId && item.Id == requestId, cancellationToken)
             ?? throw new ResourceNotFoundException("Request not found.");
         return ToDto(request);
@@ -46,22 +50,31 @@ public sealed class ExternalRequestService(ApplicationDbContext db, IEmailSender
             (input.Action == ExternalAction.Sign && !input.DocumentVersionId.HasValue))
             throw new FluentValidation.ValidationException(
                 [new ValidationFailure("Request", "Invalid external request fields or document scope.")]);
+        if (input.RecipientName.Length > 200 || input.Instructions.Length > 5000 ||
+            (input.Action == ExternalAction.Upload && string.IsNullOrWhiteSpace(input.RecipientName)))
+            throw new FluentValidation.ValidationException(
+                [new ValidationFailure("RecipientName", "Provide a recipient name for the document request.")]);
+        if (input.ExpiresAtUtc.HasValue && (input.ExpiresAtUtc <= DateTimeOffset.UtcNow ||
+                input.ExpiresAtUtc > DateTimeOffset.UtcNow.AddDays(365)))
+            throw new FluentValidation.ValidationException(
+                [new ValidationFailure("ExpiresAtUtc", "Expiry must be in the future, within one year.")]);
 
         var matter = await db.Matters.SingleOrDefaultAsync(item => item.Id == matterId, cancellationToken)
             ?? throw new ResourceNotFoundException("Matter not found.");
         MatterRules.EnsureWritable(matter);
-        if (input.DocumentVersionId.HasValue && !await db.DocumentVersions.AnyAsync(version =>
-                version.Id == input.DocumentVersionId && version.Document.MatterId == matterId, cancellationToken))
-            throw new ResourceNotFoundException("Document version not found.");
+        if (input.DocumentVersionId.HasValue)
+            await documents.EnsureSignableAsync(matterId, input.DocumentVersionId.Value, cancellationToken);
 
         var request = new ExternalRequest
         {
             Id = Guid.NewGuid(), Matter = matter, Action = input.Action,
             RecipientEmail = input.RecipientEmail.Trim(), Title = input.Title.Trim(),
+            RecipientName = input.RecipientName.Trim(), Instructions = input.Instructions.Trim(),
+            UploadStatus = input.Action == ExternalAction.Upload ? DocumentRequestStatus.AwaitingUpload : null,
             DocumentVersionId = input.DocumentVersionId, CreatedAtUtc = DateTimeOffset.UtcNow
         };
         db.ExternalRequests.Add(request);
-        return await RotateAndSendAsync(request, InvitationFor(request.Action), cancellationToken);
+        return await RotateAndSendAsync(request, InvitationFor(request.Action), cancellationToken, input.ExpiresAtUtc);
     }
 
     public async Task<ExternalRequestDto> ResendAsync(int matterId, Guid requestId, EmailTemplate? template,
@@ -70,13 +83,14 @@ public sealed class ExternalRequestService(ApplicationDbContext db, IEmailSender
         EnsureSendCanCommit();
         var request = await FindAsync(matterId, requestId, cancellationToken);
         MatterRules.EnsureWritable(request.Matter);
-        if (request.Action == ExternalAction.Upload && request.Progress == RequestProgress.Completed)
-            throw new ConflictException("Completed upload requests cannot be resent.");
+        if (request.Action == ExternalAction.Upload && !CanUpload(request))
+            throw new ConflictException("Only requests awaiting an upload or correction can be resent.");
         var selectedTemplate = template ?? InvitationFor(request.Action);
         if (!Enum.IsDefined(selectedTemplate) ||
             (selectedTemplate == EmailTemplate.DocumentRequest && request.Action != ExternalAction.Upload) ||
             (selectedTemplate == EmailTemplate.SignatureInvitation && request.Action != ExternalAction.Sign) ||
-            (selectedTemplate == EmailTemplate.Correction && request.Action != ExternalAction.Upload))
+            (selectedTemplate == EmailTemplate.Correction && (request.Action != ExternalAction.Upload ||
+                request.UploadStatus != DocumentRequestStatus.CorrectionsRequested)))
             throw new FluentValidation.ValidationException(
                 [new ValidationFailure("Template", "The email template does not match the request action.")]);
         return await RotateAndSendAsync(request, selectedTemplate, cancellationToken);
@@ -104,8 +118,11 @@ public sealed class ExternalRequestService(ApplicationDbContext db, IEmailSender
             request.ExpiresAtUtc <= DateTimeOffset.UtcNow ||
             !CryptographicOperations.FixedTimeEquals(Convert.FromHexString(request.TokenHash), Hash(token)))
             throw Unavailable();
-        if (forSubmission && request.Progress == RequestProgress.Completed)
-            throw new ConflictException("This request has already been completed.");
+        if (forSubmission && (request.Action == ExternalAction.Upload ? !CanUpload(request) :
+                request.Progress == RequestProgress.Completed))
+            throw new ConflictException("This request is not accepting submissions.");
+        if (request.Action == ExternalAction.Sign)
+            await documents.EnsureSignableAsync(request.MatterId, request.DocumentVersionId!.Value, cancellationToken);
         return request;
     }
 
@@ -113,8 +130,15 @@ public sealed class ExternalRequestService(ApplicationDbContext db, IEmailSender
         CancellationToken cancellationToken)
     {
         var request = await ValidateAsync(requestId, action, token, false, cancellationToken);
+        var correction = request.UploadStatus == DocumentRequestStatus.CorrectionsRequested
+            ? await db.DocumentSubmissions.AsNoTracking().Where(submission => submission.ExternalRequestId == requestId &&
+                    submission.Decision == SubmissionDecision.CorrectionsRequested)
+                .OrderByDescending(submission => submission.DocumentVersion.VersionNumber)
+                .Select(submission => submission.CorrectionExplanation).FirstOrDefaultAsync(cancellationToken)
+            : null;
         return new PublicRequestContext(request.Id, request.Action, request.Title, request.Progress,
-            request.ExpiresAtUtc, request.Progress != RequestProgress.Completed, request.Action == ExternalAction.Sign);
+            request.ExpiresAtUtc, request.Action == ExternalAction.Upload ? CanUpload(request) : request.Progress != RequestProgress.Completed,
+            request.Action == ExternalAction.Sign, request.RecipientName, request.Instructions, request.UploadStatus, correction);
     }
 
     public async Task<DocumentFile> OpenPdfAsync(Guid requestId, string? token, CancellationToken cancellationToken)
@@ -132,23 +156,20 @@ public sealed class ExternalRequestService(ApplicationDbContext db, IEmailSender
     public async Task CompleteAsync(Guid requestId, ExternalAction action, string? token, int? signedDocumentVersionId,
         CancellationToken cancellationToken)
     {
+        if (action == ExternalAction.Upload)
+            throw new ConflictException("Document requests are completed by accepting a submission.");
         var validated = await ValidateAsync(requestId, action, token, true, cancellationToken);
         var request = await FindAsync(validated.MatterId, requestId, cancellationToken);
         // Preserve tracked workflow changes, but never complete using an older request/matter version.
         if (db.Entry(request).Property(item => item.Version).OriginalValue != validated.Version ||
             db.Entry(request.Matter).Property(item => item.Version).OriginalValue != validated.Matter.Version)
             throw new ConflictException("The matter or request changed. Reload it and try again.");
-        if (action == ExternalAction.Sign)
-        {
-            var originalDocumentId = await db.DocumentVersions.Where(version => version.Id == request.DocumentVersionId)
-                .Select(version => version.DocumentId).SingleAsync(cancellationToken);
-            if (signedDocumentVersionId == request.DocumentVersionId || !await db.DocumentVersions.AnyAsync(version =>
-                    version.Id == signedDocumentVersionId && version.DocumentId == originalDocumentId &&
-                    version.Document.MatterId == request.MatterId, cancellationToken))
-                throw new ResourceNotFoundException("Signed document version not found.");
-        }
-        else if (signedDocumentVersionId.HasValue)
-            throw new ConflictException("Upload requests do not have a signed PDF.");
+        var originalDocumentId = await db.DocumentVersions.Where(version => version.Id == request.DocumentVersionId)
+            .Select(version => version.DocumentId).SingleAsync(cancellationToken);
+        if (signedDocumentVersionId == request.DocumentVersionId || !await db.DocumentVersions.AnyAsync(version =>
+                version.Id == signedDocumentVersionId && version.DocumentId == originalDocumentId &&
+                version.Document.MatterId == request.MatterId, cancellationToken))
+            throw new ResourceNotFoundException("Signed document version not found.");
 
         request.Progress = RequestProgress.Completed;
         request.CompletedAtUtc = DateTimeOffset.UtcNow;
@@ -158,11 +179,11 @@ public sealed class ExternalRequestService(ApplicationDbContext db, IEmailSender
     }
 
     private async Task<ExternalRequestDto> RotateAndSendAsync(ExternalRequest request, EmailTemplate template,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, DateTimeOffset? expiresAtUtc = null)
     {
         var token = Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(32));
         request.TokenHash = Convert.ToHexStringLower(Hash(token));
-        request.ExpiresAtUtc = DateTimeOffset.UtcNow.AddDays(options.Value.ExpiryDays);
+        request.ExpiresAtUtc = expiresAtUtc?.ToUniversalTime() ?? DateTimeOffset.UtcNow.AddDays(options.Value.ExpiryDays);
         request.RevokedAtUtc = null;
         var attempt = new EmailDeliveryAttempt
         {
@@ -228,7 +249,16 @@ public sealed class ExternalRequestService(ApplicationDbContext db, IEmailSender
             request.Title, request.Progress, request.ExpiresAtUtc, request.RevokedAtUtc, request.CompletedAtUtc,
             request.DeliveryAttempts.OrderByDescending(attempt => attempt.StartedAtUtc).ThenBy(attempt => attempt.Id)
                 .Select(attempt => new DeliveryAttemptDto(attempt.Id, attempt.Template, attempt.Status,
-                    attempt.StartedAtUtc, attempt.FinishedAtUtc, attempt.FailureCode)).ToArray());
+                    attempt.StartedAtUtc, attempt.FinishedAtUtc, attempt.FailureCode)).ToArray(),
+            request.RecipientName, request.Instructions, request.UploadStatus, request.UploadedDocumentId,
+            request.Submissions.OrderByDescending(submission => submission.DocumentVersion.VersionNumber)
+                .Select(submission => new DocumentSubmissionDto(submission.DocumentVersionId, submission.DocumentVersion.DocumentId,
+                    submission.DocumentVersion.VersionNumber, submission.DocumentVersion.OriginalFileName,
+                    submission.DocumentVersion.UploadedAtUtc, submission.Decision, submission.CorrectionExplanation,
+                    submission.ReviewerId, submission.ReviewedAtUtc)).ToArray());
+
+    private static bool CanUpload(ExternalRequest request) => request.UploadStatus is
+        DocumentRequestStatus.AwaitingUpload or DocumentRequestStatus.CorrectionsRequested;
 
     private static EmailTemplate InvitationFor(ExternalAction action) => action == ExternalAction.Upload
         ? EmailTemplate.DocumentRequest : EmailTemplate.SignatureInvitation;

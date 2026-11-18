@@ -1,5 +1,7 @@
 namespace Amanet.Core.Entities;
 
+public enum DocumentClassification { Standard, ReviewPending, Accepted }
+
 public sealed class MatterDocument
 {
     public int Id { get; set; }
@@ -7,6 +9,7 @@ public sealed class MatterDocument
     public Matter Matter { get; set; } = null!;
     public string Title { get; set; } = string.Empty;
     public string? Category { get; set; }
+    public DocumentClassification Classification { get; set; }
     public DateTimeOffset CreatedAtUtc { get; set; }
     public DateTimeOffset UpdatedAtUtc { get; set; }
     public ICollection<DocumentVersion> Versions { get; set; } = [];
@@ -24,6 +27,6 @@ public sealed class DocumentVersion
     public string Sha256 { get; init; } = string.Empty;
     public string StorageKey { get; init; } = string.Empty;
     public string Source { get; init; } = "AdminUpload";
-    public int UploaderId { get; init; }
+    public int? UploaderId { get; init; }
     public DateTimeOffset UploadedAtUtc { get; init; }
 }

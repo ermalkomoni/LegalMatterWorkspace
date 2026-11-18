@@ -1,4 +1,5 @@
 using Amanet.Application.Services;
+using Amanet.Application.DTOs;
 using Amanet.Core.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -8,12 +9,20 @@ using Microsoft.Net.Http.Headers;
 namespace Amanet.API.Controllers;
 
 [Route("api/v{version:apiVersion}/matters/{matterId:int}/external-requests")]
-public sealed class ExternalRequestsController(IExternalRequestService requests) : BaseController
+public sealed class ExternalRequestsController(IExternalRequestService requests, IClientDocumentRequestService submissions) : BaseController
 {
+    [HttpGet("/api/v{version:apiVersion}/external-requests")]
+    public Task<IReadOnlyList<ExternalRequestDto>> ListAll(CancellationToken cancellationToken,
+        [FromQuery] int? matterId = null, [FromQuery] DocumentRequestStatus? status = null)
+    {
+        return requests.ListAsync(matterId, status, cancellationToken);
+    }
+
 	[HttpGet]
-	public Task<IReadOnlyList<ExternalRequestDto>> List(int matterId, CancellationToken cancellationToken)
+	public Task<IReadOnlyList<ExternalRequestDto>> List(int matterId, CancellationToken cancellationToken,
+        [FromQuery] DocumentRequestStatus? status = null)
 	{
-		return requests.ListAsync(matterId, cancellationToken);
+		return requests.ListAsync(matterId, status, cancellationToken);
 	}
 
 	[HttpPost]
@@ -42,13 +51,22 @@ public sealed class ExternalRequestsController(IExternalRequestService requests)
 	{
 		return requests.RevokeAsync(matterId, requestId, cancellationToken);
 	}
+
+    [HttpPost("{requestId:guid}/submissions/{versionId:int}/review")]
+    public async Task<ActionResult<ExternalRequestDto>> Review(int matterId, Guid requestId, int versionId,
+        ReviewSubmissionRequest input, CancellationToken cancellationToken)
+    {
+        if (!int.TryParse(User.FindFirst("sub")?.Value, out var reviewerId))
+            return Unauthorized();
+        return await submissions.ReviewAsync(matterId, requestId, versionId, input, reviewerId, cancellationToken);
+    }
 }
 
 [AllowAnonymous]
 [EnableRateLimiting("ExternalLinks")]
 [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
 [Route("api/v{version:apiVersion}/external")]
-public sealed class PublicExternalRequestsController(IExternalRequestService requests) : BaseController
+public sealed class PublicExternalRequestsController(IExternalRequestService requests, IClientDocumentRequestService submissions) : BaseController
 {
     [HttpGet("{linkAction}/{requestId:guid}")]
     public async Task<ActionResult<PublicRequestContext>> Context(string linkAction, Guid requestId,
@@ -77,12 +95,36 @@ public sealed class PublicExternalRequestsController(IExternalRequestService req
         return new FileStreamResult(file.Content, "application/pdf");
     }
 
-    private string? LinkToken() => Request.Headers["X-Link-Token"] is { Count: 1 } values ? values[0] : null;
+    [HttpPost("upload/{requestId:guid}")]
+    [Consumes("multipart/form-data")]
+    [RequestSizeLimit(21 * 1024 * 1024)]
+    [RequestFormLimits(MultipartBodyLengthLimit = 21 * 1024 * 1024)]
+    public async Task<PublicRequestContext> Upload(Guid requestId, IFormFile file, CancellationToken cancellationToken)
+    {
+        ProtectResponse();
+        await using var content = file.OpenReadStream();
+        return await submissions.UploadAsync(requestId, LinkToken(), content, file.FileName, cancellationToken);
+    }
+
+    private string? LinkToken()
+    {
+        return Request.Headers["X-Link-Token"] is { Count: 1 } values ? values[0] : null;
+    }
 
     private void ProtectResponse()
     {
         Response.Headers.CacheControl = "no-store";
         Response.Headers["Referrer-Policy"] = "no-referrer";
         Response.Headers.XContentTypeOptions = "nosniff";
+    }
+}
+
+[Route("api/v{version:apiVersion}/notifications")]
+public sealed class AdminNotificationsController(IAdminNotificationService notifications) : BaseController
+{
+    [HttpGet]
+    public Task<PagedResult<AdminNotificationDto>> List([FromQuery] ListQuery query, CancellationToken cancellationToken)
+    {
+        return notifications.ListAsync(query, cancellationToken);
     }
 }

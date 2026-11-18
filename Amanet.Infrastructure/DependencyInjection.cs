@@ -71,6 +71,8 @@ public static class DependencyInjection
         services.Configure<SmtpOptions>(configuration.GetSection("Smtp"));
         services.AddScoped<IEmailSender, SmtpEmailSender>();
         services.AddScoped<IExternalRequestService, ExternalRequestService>();
+        services.AddScoped<IClientDocumentRequestService, ClientDocumentRequestService>();
+        services.AddScoped<IAdminNotificationService, AdminNotificationService>();
 
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             .AddJwtBearer(bearer =>

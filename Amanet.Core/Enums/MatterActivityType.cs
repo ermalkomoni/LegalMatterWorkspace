@@ -6,5 +6,6 @@ public enum MatterActivityType
     TaskCreated, TaskUpdated, TaskCompleted, TaskReopened, TaskDeleted,
     NoteCreated, NoteUpdated, NoteDeleted,
     DeadlineCreated, DeadlineUpdated, DeadlineCompleted, DeadlineDeleted,
-    DocumentUploaded, DocumentVersionUploaded, DocumentUpdated
+    DocumentUploaded, DocumentVersionUploaded, DocumentUpdated,
+    ClientDocumentSubmitted, SubmissionAccepted, CorrectionsRequested
 }

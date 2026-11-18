@@ -17,7 +17,7 @@ public sealed class DocumentService(ApplicationDbContext db, PrivateDocumentStor
 {
     private static readonly Expression<Func<MatterDocument, DocumentDto>> Projection = document =>
         new DocumentDto(document.Id, document.MatterId, document.Matter.ReferenceNumber, document.Title, document.Category,
-            document.Versions.Max(version => version.VersionNumber), document.CreatedAtUtc, document.UpdatedAtUtc);
+            document.Versions.Max(version => version.VersionNumber), document.CreatedAtUtc, document.UpdatedAtUtc, document.Classification);
 
     public async Task<PagedResult<DocumentDto>> ListAsync(DocumentListQuery query, CancellationToken cancellationToken)
     {
@@ -89,6 +89,21 @@ public sealed class DocumentService(ApplicationDbContext db, PrivateDocumentStor
             version.Sha256, version.UploadedAtUtc);
     }
 
+    public async Task EnsureSignableAsync(int matterId, int versionId, CancellationToken cancellationToken)
+    {
+        var version = await db.DocumentVersions.AsNoTracking().Where(version => version.Id == versionId &&
+                version.Document.MatterId == matterId)
+            .Select(version => new { version.Document.Classification, version.Document.Matter.ArchivedAtUtc })
+            .SingleOrDefaultAsync(cancellationToken) ?? throw new ResourceNotFoundException("Document version not found.");
+        if (version.ArchivedAtUtc.HasValue)
+            throw new ConflictException("Archived matters cannot be changed.");
+        if (version.Classification != DocumentClassification.Standard && !await db.DocumentSubmissions.AnyAsync(submission =>
+                submission.DocumentVersionId == versionId && submission.Decision == SubmissionDecision.Accepted &&
+                submission.ExternalRequest.UploadStatus == DocumentRequestStatus.Accepted &&
+                submission.ExternalRequest.MatterId == matterId, cancellationToken))
+            throw new ConflictException("Only the accepted client submission version can be signed.");
+    }
+
     public async Task<DocumentVersionDto> UploadAsync(int matterId, int? documentId, DocumentRequest? request,
         Stream content, string fileName, int uploaderId, CancellationToken cancellationToken)
     {
@@ -105,6 +120,8 @@ public sealed class DocumentService(ApplicationDbContext db, PrivateDocumentStor
             document = await db.MatterDocuments.SingleOrDefaultAsync(document =>
                 document.Id == documentId && document.MatterId == matterId, cancellationToken)
                 ?? throw new ResourceNotFoundException("Document not found.");
+            if (document.Classification != DocumentClassification.Standard)
+                throw new ConflictException("Client-request documents receive new versions through their request.");
             number = await db.DocumentVersions.Where(version => version.DocumentId == documentId)
                 .MaxAsync(version => version.VersionNumber, cancellationToken) + 1;
         }

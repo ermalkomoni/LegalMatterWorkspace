@@ -22,6 +22,44 @@ namespace Amanet.Infrastructure.Data.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("Amanet.Core.Entities.AdminNotification", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("DocumentVersionId")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("ExternalRequestId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("MatterId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAtUtc");
+
+                    b.HasIndex("DocumentVersionId");
+
+                    b.HasIndex("ExternalRequestId");
+
+                    b.HasIndex("MatterId");
+
+                    b.ToTable("AdminNotifications");
+                });
+
             modelBuilder.Entity("Amanet.Core.Entities.Client", b =>
                 {
                     b.Property<int>("Id")
@@ -51,6 +89,40 @@ namespace Amanet.Infrastructure.Data.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("Clients");
+                });
+
+            modelBuilder.Entity("Amanet.Core.Entities.DocumentSubmission", b =>
+                {
+                    b.Property<int>("DocumentVersionId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("CorrectionExplanation")
+                        .HasMaxLength(5000)
+                        .HasColumnType("character varying(5000)");
+
+                    b.Property<string>("Decision")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<Guid>("ExternalRequestId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset?>("ReviewedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int?>("ReviewerId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("DocumentVersionId");
+
+                    b.HasIndex("ExternalRequestId");
+
+                    b.HasIndex("ReviewerId");
+
+                    b.ToTable("DocumentSubmissions", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_DocumentSubmissions_Review", "\"Decision\" <> 'CorrectionsRequested' OR (\"CorrectionExplanation\" IS NOT NULL AND length(btrim(\"CorrectionExplanation\")) > 0)");
+                        });
                 });
 
             modelBuilder.Entity("Amanet.Core.Entities.DocumentVersion", b =>
@@ -95,7 +167,7 @@ namespace Amanet.Infrastructure.Data.Migrations
                     b.Property<DateTimeOffset>("UploadedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
-                    b.Property<int>("UploaderId")
+                    b.Property<int?>("UploaderId")
                         .HasColumnType("integer");
 
                     b.Property<int>("VersionNumber")
@@ -178,6 +250,11 @@ namespace Amanet.Infrastructure.Data.Migrations
                     b.Property<DateTimeOffset>("ExpiresAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("Instructions")
+                        .IsRequired()
+                        .HasMaxLength(5000)
+                        .HasColumnType("character varying(5000)");
+
                     b.Property<int>("MatterId")
                         .HasColumnType("integer");
 
@@ -190,6 +267,11 @@ namespace Amanet.Infrastructure.Data.Migrations
                         .IsRequired()
                         .HasMaxLength(254)
                         .HasColumnType("character varying(254)");
+
+                    b.Property<string>("RecipientName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
 
                     b.Property<DateTimeOffset?>("RevokedAtUtc")
                         .HasColumnType("timestamp with time zone");
@@ -207,6 +289,13 @@ namespace Amanet.Infrastructure.Data.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)");
 
+                    b.Property<string>("UploadStatus")
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<int?>("UploadedDocumentId")
+                        .HasColumnType("integer");
+
                     b.Property<uint>("Version")
                         .IsConcurrencyToken()
                         .ValueGeneratedOnAddOrUpdate()
@@ -217,9 +306,12 @@ namespace Amanet.Infrastructure.Data.Migrations
 
                     b.HasIndex("DocumentVersionId");
 
-                    b.HasIndex("MatterId");
-
                     b.HasIndex("SignedDocumentVersionId");
+
+                    b.HasIndex("UploadedDocumentId")
+                        .IsUnique();
+
+                    b.HasIndex("MatterId", "UploadStatus");
 
                     b.ToTable("ExternalRequests");
                 });
@@ -367,6 +459,11 @@ namespace Amanet.Infrastructure.Data.Migrations
                     b.Property<string>("Category")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Classification")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
 
                     b.Property<DateTimeOffset>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
@@ -657,6 +754,57 @@ namespace Amanet.Infrastructure.Data.Migrations
                     b.ToTable("AspNetUserTokens", (string)null);
                 });
 
+            modelBuilder.Entity("Amanet.Core.Entities.AdminNotification", b =>
+                {
+                    b.HasOne("Amanet.Core.Entities.DocumentVersion", "DocumentVersion")
+                        .WithMany()
+                        .HasForeignKey("DocumentVersionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Amanet.Core.Entities.ExternalRequest", "ExternalRequest")
+                        .WithMany()
+                        .HasForeignKey("ExternalRequestId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Amanet.Core.Entities.Matter", "Matter")
+                        .WithMany()
+                        .HasForeignKey("MatterId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("DocumentVersion");
+
+                    b.Navigation("ExternalRequest");
+
+                    b.Navigation("Matter");
+                });
+
+            modelBuilder.Entity("Amanet.Core.Entities.DocumentSubmission", b =>
+                {
+                    b.HasOne("Amanet.Core.Entities.DocumentVersion", "DocumentVersion")
+                        .WithOne()
+                        .HasForeignKey("Amanet.Core.Entities.DocumentSubmission", "DocumentVersionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Amanet.Core.Entities.ExternalRequest", "ExternalRequest")
+                        .WithMany("Submissions")
+                        .HasForeignKey("ExternalRequestId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Amanet.Infrastructure.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("ReviewerId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("DocumentVersion");
+
+                    b.Navigation("ExternalRequest");
+                });
+
             modelBuilder.Entity("Amanet.Core.Entities.DocumentVersion", b =>
                 {
                     b.HasOne("Amanet.Core.Entities.MatterDocument", "Document")
@@ -668,8 +816,7 @@ namespace Amanet.Infrastructure.Data.Migrations
                     b.HasOne("Amanet.Infrastructure.Identity.ApplicationUser", null)
                         .WithMany()
                         .HasForeignKey("UploaderId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("Document");
                 });
@@ -703,7 +850,14 @@ namespace Amanet.Infrastructure.Data.Migrations
                         .HasForeignKey("SignedDocumentVersionId")
                         .OnDelete(DeleteBehavior.Restrict);
 
+                    b.HasOne("Amanet.Core.Entities.MatterDocument", "UploadedDocument")
+                        .WithOne()
+                        .HasForeignKey("Amanet.Core.Entities.ExternalRequest", "UploadedDocumentId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.Navigation("Matter");
+
+                    b.Navigation("UploadedDocument");
                 });
 
             modelBuilder.Entity("Amanet.Core.Entities.Matter", b =>
@@ -832,6 +986,8 @@ namespace Amanet.Infrastructure.Data.Migrations
             modelBuilder.Entity("Amanet.Core.Entities.ExternalRequest", b =>
                 {
                     b.Navigation("DeliveryAttempts");
+
+                    b.Navigation("Submissions");
                 });
 
             modelBuilder.Entity("Amanet.Core.Entities.MatterDocument", b =>

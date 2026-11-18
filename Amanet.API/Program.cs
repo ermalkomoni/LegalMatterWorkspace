@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using System.Threading.RateLimiting;
 using Amanet.API.Middleware;
 using Amanet.Application;
 using Amanet.Application.Services;
@@ -32,10 +33,15 @@ builder.Services.AddRateLimiter(options =>
         limiter.Window = TimeSpan.FromMinutes(1);
         limiter.QueueLimit = 0;
     });
+    options.AddPolicy("ExternalLinks", context => RateLimitPartition.GetFixedWindowLimiter(
+        context.Connection.RemoteIpAddress?.ToString() ?? "unknown", _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 30, Window = TimeSpan.FromMinutes(1), QueueLimit = 0
+        }));
     options.OnRejected = async (context, cancellationToken) =>
     {
         await Results.Problem(statusCode: StatusCodes.Status429TooManyRequests,
-            title: "Too many login attempts. Try again later.").ExecuteAsync(context.HttpContext);
+            title: "Too many requests. Try again later.").ExecuteAsync(context.HttpContext);
     };
 });
 builder.Services.AddControllers().AddJsonOptions(options =>
@@ -72,7 +78,8 @@ builder.Services.AddSwaggerGen(options =>
     });
 });
 builder.Services.AddCors(options => options.AddPolicy("LocalFrontend", policy =>
-    policy.WithOrigins("http://localhost:3000").AllowAnyHeader().AllowAnyMethod()));
+    policy.WithOrigins(new Uri(builder.Configuration["ExternalLinks:FrontendBaseUrl"] ?? "http://localhost:3000")
+        .GetLeftPart(UriPartial.Authority)).AllowAnyHeader().AllowAnyMethod()));
 builder.Services.AddProblemDetails(options => options.CustomizeProblemDetails = context =>
 {
     context.ProblemDetails.Type ??= $"https://httpstatuses.io/{context.ProblemDetails.Status}";

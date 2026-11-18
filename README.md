@@ -1,6 +1,6 @@
 # Amanet backend
 
-.NET 10 backend for the legal matter workspace assessment. Includes Admin authentication, client records, matter management, tasks, internal notes, deadlines, and a private PDF document library.
+.NET 10 backend for the legal matter workspace assessment. Includes Admin authentication, client records, matter management, tasks, internal notes, deadlines, a private PDF document library, and scoped external requests with synchronous SMTP delivery.
 
 ## Structure
 
@@ -10,9 +10,9 @@
 | Amanet.Application | DTOs, service contracts, commands, queries and validation |
 | Amanet.Infrastructure | EF Core/PostgreSQL, Identity, private PDF storage, authentication and seeding |
 | Amanet.API | Controllers, HTTP configuration and Swagger |
-| Amanet.Tests | Health/Swagger smoke checks and focused matter task/note/deadline integration tests |
+| Amanet.Tests | Health/Swagger smoke checks and focused external-link regression tests |
 
-Controllers inherit `BaseController` for API version `1.0` and `/api/v{version}/[controller]` routes. The default and fallback policies require the Admin role, including for new controllers. Login and health explicitly allow anonymous access. Public-link endpoints will be added later.
+Controllers inherit `BaseController` for API version `1.0` and `/api/v{version}/[controller]` routes. The default and fallback policies require the Admin role, including for new controllers. Login, health, and the explicitly scoped public-link controller allow anonymous access.
 
 Identity users and roles have integer IDs. Migrations include Identity, clients, matters, matter activities, tasks, internal notes, deadlines and document versions, with no embedded credentials. Private documents are stored outside the web root; static-file middleware is not enabled.
 
@@ -31,7 +31,7 @@ docker compose up -d --wait
 Local services:
 
 - PostgreSQL: `127.0.0.1:54329`, database `amanet_dev`, user `amanet_local`, password `amanet_local_dev_only`.
-- Mailpit SMTP: `127.0.0.1:1025`; UI: [http://localhost:8025](http://localhost:8025). Email delivery is not implemented yet.
+- Mailpit SMTP: `127.0.0.1:1025`; UI: [http://localhost:8025](http://localhost:8025). Development SMTP settings are included; no SMTP credentials are needed for Mailpit.
 
 These are public sample database credentials for local use, not Admin login credentials. Optional service overrides go in an ignored `.env` copied from `.env.example`. `docker compose down` retains development data; adding `--volumes` deletes it.
 
@@ -93,7 +93,7 @@ User secrets are for development only. Remove the seed password after provisioni
 | `/health` | Anonymous process liveness; does not check dependencies |
 | `/swagger` | Development and Testing only; includes Bearer authorization |
 
-The API runs at [http://localhost:5109](http://localhost:5109). CORS allows `http://localhost:3000`.
+The API runs at [http://localhost:5109](http://localhost:5109). CORS allows the origin of `ExternalLinks:FrontendBaseUrl` (default `http://localhost:3000`), including the `X-Link-Token` header.
 
 Login request (replace the password placeholder with the one you configured):
 
@@ -118,7 +118,7 @@ Send `Authorization: Bearer <jwt-access-token>` on protected requests, or paste 
 
 Identity handles password hashing. Access tokens last eight hours; validation checks issuer, audience, signature and lifetime. Five incorrect password attempts lock an account for 15 minutes. Unknown accounts, incorrect passwords, locked accounts and non-Admin accounts receive the same generic login failure. Excess login requests return `429`. Credentials and tokens are not logged.
 
-There is no registration, refresh token, password reset or client-account API. Tokens remain valid until expiry; `/me` also checks the current account's Admin membership. Public-link access is reserved for later features.
+There is no registration, refresh token, password reset or client-account API. JWTs remain valid until expiry; `/me` also checks the current account's Admin membership. External requests use a separate, narrowly scoped link token, never an Admin JWT.
 
 HTTP failures use ProblemDetails with a `traceId`; validation failures also include an `errors` dictionary. Missing/invalid tokens return `401`, and authenticated non-Admins receive `403`.
 
@@ -150,7 +150,7 @@ References are trimmed, stored uppercase, and protected by a PostgreSQL unique i
 
 Creation, meaningful updates, archive and restore record activity in the same transaction. An unchanged update or repeated archive/restore does not add another event. Concurrent matter writes return `409`; reload before retrying.
 
-Archived matters and their history remain readable, but updates return `409`. `MatterRules.EnsureWritable` is the shared rule for future task, document and external-link actions. Link infrastructure is not implemented yet: future archive-time revocations must be added before the existing save so they commit atomically. Restore changes only the matter and must never reactivate revoked links.
+Archived matters and their history remain readable to Admins, but updates return `409`. `MatterRules.EnsureWritable` is the shared rule for task, document and external-link actions. Archiving revokes all current external links in the same database transaction as the archive and its activity. Restore changes only the matter and never reactivates revoked links.
 
 Apply the new migration with the same `dotnet ef database update` command in the setup section.
 
@@ -219,9 +219,69 @@ Lato Regular and Bold are bundled as assembly resources from the [official Googl
 
 Apply the `PrivatePdfLibrary` migration with the migration command in the setup section. Feature 5 adds no tests; automated coverage is deferred until the end of the assessment.
 
+## Scoped external links and SMTP (Feature 6)
+
+This feature supplies shared request/link infrastructure for later upload and signing workflows. A request has one immutable action (`Upload` or `Sign`) and one current link. There are no client accounts, queues, automatic retries, or background workers. Upload submission, review/correction workflow transitions and signature generation remain for the later workflow features; this feature does not expose a public completion shortcut.
+
+All Admin routes start with `/api/v1/matters/{matterId}/external-requests`:
+
+| Method | Suffix | Purpose |
+| --- | --- | --- |
+| POST | Collection | Create the request and send its initial invitation |
+| GET | Collection | List this matter's requests and delivery attempts for recovery |
+| GET | `/{requestId}` | Read progress, link expiry/revocation and delivery attempts |
+| POST | `/{requestId}/resend` | Rotate the link and synchronously retry/resend/send a reminder or correction |
+| POST | `/{requestId}/revoke` | Revoke the current link; repeated revocation is harmless |
+
+Create JSON contains `action`, `recipientEmail`, `title`, and optional `documentVersionId`. A `Sign` request requires a document version from the same matter; an `Upload` request must omit it. `title` is intended for the recipient and appears in the public context. Resend takes `{}` for the appropriate original invitation, or `{"template":"Reminder"}` / `{"template":"Correction"}`. `DocumentRequest` and `Correction` apply to uploads; `SignatureInvitation` applies to signing; `Reminder` applies to either. A correction email alone does not reopen a completed upload or change workflow progress.
+
+Tokens contain 256 cryptographically random bits, encoded as 64 lowercase hex characters. Only SHA-256 hashes are saved. Links expire after seven days by default (`ExternalLinks:ExpiryDays`, 1–365). Every explicit send rotates the hash, invalidating the previous token even when the new SMTP attempt fails. Resending explicitly revoked or expired requests creates a fresh link for active matters. Completed uploads cannot be resent or submitted again. Completed signing requests can be resent for read-only access to their final PDF. Delivery attempts never reset `Pending` / `Viewed` / `Started` / `Completed` workflow progress.
+
+Frontend URLs are generated only for the transient email body:
+
+```text
+{FrontendBaseUrl}/external/upload/{requestId}#token=<token>
+{FrontendBaseUrl}/external/sign/{requestId}#token=<token>
+```
+
+The frontend must read the fragment and send its token in `X-Link-Token` on each API call. Do not put it in an API query string, local analytics, logs or error reports. The backend never returns the token or full URL in Admin DTOs, activity or delivery-attempt records. There is no frontend in this repository yet.
+
+| Public endpoint | Purpose |
+| --- | --- |
+| `GET /api/v1/external/upload/{requestId}` | Upload request context |
+| `GET /api/v1/external/sign/{requestId}` | Signing request context |
+| `GET /api/v1/external/sign/{requestId}/file` | Only the request's original PDF before completion, or final signed PDF afterwards |
+
+All public operations require the matching request, action and header token, an unexpired/unrevoked link and an active matter. Invalid, missing, expired, revoked, wrong-action and archived links return the same `404`. Completed requests remain readable through their context; submission guards return `409`. Public context is restricted to request ID, action, recipient-facing title, progress, expiry and capability flags. It excludes matter/client details, notes, email addresses, version IDs and storage keys. Public responses disable caching and referrers. Public calls share a per-remote-IP limit of 30 requests per minute, with no waiting queue; excess calls return `429`.
+
+Workflow services should compose `IExternalRequestService.ValidateAsync` for **every** public operation. It reads a fresh, untracked snapshot; cached EF entities never authorize an expired, revoked, rotated or archived link. Pass `forSubmission: true` for writes; the guard rejects completed requests. `CompleteAsync` revalidates and saves completion with pending changes in the same scoped `ApplicationDbContext`, while checking the tracked request/matter versions. To generate a new signed document version, workflow services should use an explicit database transaction: save the version to obtain its ID, call `CompleteAsync`, then commit. Signing completion requires a different version of the same logical document; after completion the public file endpoint serves only that final version. Later workflow services must save intermediate progress/document writes using the same matter/request concurrency protection.
+
+### SMTP configuration and recovery
+
+`IEmailSender` uses MailKit SMTP. Development settings target Mailpit without TLS. For a real SMTP server, configure these through environment variables or user secrets:
+
+```text
+ExternalLinks__FrontendBaseUrl=https://your-frontend.example
+Smtp__Host=smtp.example
+Smtp__Port=587
+Smtp__Security=StartTls
+Smtp__FromEmail=noreply@example.test
+Smtp__FromName=Amanet
+Smtp__Username=<smtp-username>
+Smtp__Password=<smtp-password>
+```
+
+`SslOnConnect` supports implicit TLS, normally on port 465. `None` is permitted only in Development/Testing. TLS certificate validation uses MailKit's defaults. No credentials are committed. `FrontendBaseUrl` must be an absolute HTTPS URL, or HTTP on loopback for local use, without credentials, query or fragment; an optional base path is preserved. Configure the actual frontend URL before deploying. The sender defaults to no SMTP host outside Development; missing/invalid SMTP configuration produces a recoverable failed attempt rather than discarding the request.
+
+Request/link creation and a `Pending` delivery attempt commit **before** SMTP. Create/resend reject caller-owned database transactions so SMTP can never send an uncommitted link. Sending is synchronous and bounded to 30 seconds; after commit it finishes independently of HTTP disconnects. Failed SMTP still returns the created/retried request with a `Failed` attempt. Attempts store template, status, timestamps and only `SmtpDeliveryFailed` / `SmtpTimeout` failure codes. They never store bodies, subjects, URLs, SMTP responses or exception messages. Token-bearing plaintext is constructed only in memory for sending; protocol logging is disabled. `Sent` means SMTP accepted the message, not inbox delivery.
+
+Admin recovery is explicit: list the matter's requests (including when a creation response was lost), inspect delivery attempts, then call resend. A process crash or database failure after SMTP acceptance can leave an attempt `Pending` with an uncertain outcome; resend rotates the link and may deliver another email. No automatic retry is attempted. Revocation/archive racing an in-flight send may deliver an already-invalid link, which remains unusable. Restoration never revives archived links; an Admin may explicitly issue a fresh link after restoration.
+
+Apply the `ScopedExternalLinks` migration with the setup migration command before using these endpoints.
+
 ## Tests
 
-Matter task/note/deadline integration tests use the existing `postgres-test` service on port `54330`, database `amanet_test`. They apply the real migrations and create fictional records only in that separate test database. No development data is used, and no Admin password is required. Test JWT keys are generated at runtime. The service uses temporary storage.
+External-link integration tests use the existing `postgres-test` service on port `54330`, database `amanet_test`. They apply the real migrations and create fictional records only in that separate test database. No development data is used, and no Admin password is required. Test JWT keys are generated at runtime. The service uses temporary storage.
 
 ```powershell
 docker compose --profile test up -d --wait postgres-test
@@ -229,7 +289,9 @@ dotnet test Amanet.sln --no-restore
 docker compose --profile test stop postgres-test
 ```
 
-The focused tests cover task/note/deadline create/read/edit/list/delete, completion/reopening, UTC overdue rules, optional task fields, note authorship/timestamps, note activity privacy, validation, nested ownership, Admin-only access, archived write rejection, unchanged operations, and transaction rollback when activity persistence fails. There are no authentication-flow tests. To run only the database-free health and Swagger checks, use `dotnet test Amanet.sln --filter FullyQualifiedName~Amanet.Tests.ApiIntegrationTests`.
+To run only the database-free health and Swagger checks, use `dotnet test Amanet.sln --filter FullyQualifiedName~Amanet.Tests.ApiIntegrationTests`.
+
+Feature 6 review regression tests use the same separate PostgreSQL test database and a fake `IEmailSender`. They cover fresh validation despite stale tracked entities (revocation, rotation, expiry, archive and completion), revocation after a concurrent resend, preservation of pending workflow changes, concurrency rejection, header-only access and public DTO privacy, uncached errors, transaction rejection without orphaned requests, and Admin discovery/retry of failed deliveries with sanitized errors and useful validation messages. No real SMTP service or development database is used.
 
 Dependency versions are pinned in project files and lock files. For a package update, restore with `--force-evaluate` and review the lock-file changes. To check for known vulnerabilities:
 

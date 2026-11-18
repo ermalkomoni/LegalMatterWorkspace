@@ -90,6 +90,10 @@ public sealed class MatterService(ApplicationDbContext db, IMatterActivityServic
         {
             matter.ArchivedAtUtc = DateTimeOffset.UtcNow;
             matter.UpdatedAtUtc = matter.ArchivedAtUtc.Value;
+            var links = await db.ExternalRequests.Where(request => request.MatterId == id && request.RevokedAtUtc == null)
+                .ToListAsync(cancellationToken);
+            foreach (var link in links)
+                link.RevokedAtUtc = matter.ArchivedAtUtc;
             activities.Record(matter, MatterActivityType.Archived, "Matter archived.");
             await SaveAsync(cancellationToken);
         }

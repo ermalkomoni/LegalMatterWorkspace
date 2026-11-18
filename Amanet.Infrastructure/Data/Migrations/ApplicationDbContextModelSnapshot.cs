@@ -53,6 +53,72 @@ namespace Amanet.Infrastructure.Data.Migrations
                     b.ToTable("Clients");
                 });
 
+            modelBuilder.Entity("Amanet.Core.Entities.DocumentVersion", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<long>("ByteLength")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<int>("DocumentId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("OriginalFileName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<string>("Sha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("Source")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<string>("StorageKey")
+                        .IsRequired()
+                        .HasMaxLength(36)
+                        .HasColumnType("character varying(36)");
+
+                    b.Property<DateTimeOffset>("UploadedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("UploaderId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("VersionNumber")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StorageKey")
+                        .IsUnique();
+
+                    b.HasIndex("UploaderId");
+
+                    b.HasIndex("DocumentId", "VersionNumber")
+                        .IsUnique();
+
+                    b.ToTable("DocumentVersions", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_DocumentVersions_Length", "\"ByteLength\" > 0 AND \"ByteLength\" <= 20971520");
+
+                            t.HasCheckConstraint("CK_DocumentVersions_Number", "\"VersionNumber\" > 0");
+                        });
+                });
+
             modelBuilder.Entity("Amanet.Core.Entities.Matter", b =>
                 {
                     b.Property<int>("Id")
@@ -183,6 +249,39 @@ namespace Amanet.Infrastructure.Data.Migrations
                     b.HasIndex("MatterId");
 
                     b.ToTable("MatterDeadlines");
+                });
+
+            modelBuilder.Entity("Amanet.Core.Entities.MatterDocument", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Category")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<int>("MatterId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MatterId");
+
+                    b.ToTable("MatterDocuments");
                 });
 
             modelBuilder.Entity("Amanet.Core.Entities.MatterNote", b =>
@@ -453,6 +552,23 @@ namespace Amanet.Infrastructure.Data.Migrations
                     b.ToTable("AspNetUserTokens", (string)null);
                 });
 
+            modelBuilder.Entity("Amanet.Core.Entities.DocumentVersion", b =>
+                {
+                    b.HasOne("Amanet.Core.Entities.MatterDocument", "Document")
+                        .WithMany("Versions")
+                        .HasForeignKey("DocumentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Amanet.Infrastructure.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("UploaderId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Document");
+                });
+
             modelBuilder.Entity("Amanet.Core.Entities.Matter", b =>
                 {
                     b.HasOne("Amanet.Core.Entities.Client", "PrimaryClient")
@@ -476,6 +592,17 @@ namespace Amanet.Infrastructure.Data.Migrations
                 });
 
             modelBuilder.Entity("Amanet.Core.Entities.MatterDeadline", b =>
+                {
+                    b.HasOne("Amanet.Core.Entities.Matter", "Matter")
+                        .WithMany()
+                        .HasForeignKey("MatterId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Matter");
+                });
+
+            modelBuilder.Entity("Amanet.Core.Entities.MatterDocument", b =>
                 {
                     b.HasOne("Amanet.Core.Entities.Matter", "Matter")
                         .WithMany()
@@ -563,6 +690,11 @@ namespace Amanet.Infrastructure.Data.Migrations
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("Amanet.Core.Entities.MatterDocument", b =>
+                {
+                    b.Navigation("Versions");
                 });
 #pragma warning restore 612, 618
         }

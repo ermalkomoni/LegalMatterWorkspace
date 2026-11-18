@@ -85,8 +85,16 @@ public interface IClientDocumentRequestService
         ReviewSubmissionRequest input, int reviewerId, CancellationToken cancellationToken);
 }
 
-public sealed record AdminNotificationDto(int Id, int MatterId, Guid RequestId, int DocumentVersionId,
-    string Message, DateTimeOffset CreatedAtUtc);
+public enum AdminNotificationKind
+{
+    DocumentResponse, SignatureActivity, AwaitingUpload, SubmissionAwaitingReview,
+    CorrectionsRequired, SignaturePending, OverdueTask, OverdueDeadline
+}
+
+// Live pending actions have no persisted notification ID. Overdue work has a due date instead of an event timestamp.
+public sealed record AdminNotificationDto(int? Id, int MatterId, Guid? RequestId, int? DocumentVersionId,
+    string Message, DateTimeOffset? CreatedAtUtc, AdminNotificationKind Kind, bool IsActionable,
+    int? TaskId, int? DeadlineId, DateOnly? DueDate);
 
 public interface IAdminNotificationService
 {

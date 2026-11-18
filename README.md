@@ -303,7 +303,7 @@ One request asks one recipient for one PDF. Create it through the existing neste
 | GET | `/api/v1/external/upload/{requestId}` | Public context, status, instructions and current correction explanation |
 | POST | `/api/v1/external/upload/{requestId}` | Public multipart upload with one `file` and `X-Link-Token` |
 | POST | `/api/v1/matters/{matterId}/external-requests/{requestId}/submissions/{versionId}/review` | Accept or request corrections for that exact submission |
-| GET | `/api/v1/notifications?page=1&pageSize=20` | Persisted Admin submission notifications, newest first |
+| GET | `/api/v1/notifications?page=1&pageSize=20` | Admin response/signing history and live pending actions (see Feature 9) |
 
 All Admin endpoints require an Admin Bearer token. Reminder/resend and revocation reuse the existing request endpoints. Without an upload-status filter, the shared request lists also include signing requests. To inspect a submitted PDF, use its `documentId` and `versionNumber` from the Admin submission DTO with the existing private document file endpoint; there is no duplicate preview route.
 
@@ -313,7 +313,7 @@ The first upload creates a `ReviewPending` document in the request's matter. Cor
 
 Submission status, document/version metadata, submission history, matter activity and an Admin notification commit in one EF transaction. Review status, the version-bound decision and activity also commit together; corrections include the rotated token and pending delivery attempt in that same commit before SMTP. Upload/review operations own their commit and reject caller-owned or ambient transactions before staging changes or files. Request/matter concurrency tokens reject concurrent uploads, reviews, revocation or archive changes; review lookups also check the persisted unreviewed state so a cached entity cannot overwrite an earlier decision. Archived matter writes are rejected. Public uploads reuse the existing 20 MiB PDF validation, private staging/promotion and failure cleanup. A successful upload returns its committed `Submitted` receipt without another database read or token check that could turn a committed upload into a reported failure. Failure to deliver the response does not delete the stored PDF. The filesystem/database crash-recovery limitation described above still applies.
 
-Notifications are a small persisted Admin inbox: the writer adds a row identifying the request title and version to the submission's unit of work, and the read endpoint provides pagination. There is no notification worker or separate delivery system.
+Submission notifications are saved with the submission's unit of work, identifying its request and version. Feature 9 extends the same paginated endpoint with current outstanding requirements and overdue work. There is no notification worker or separate delivery system.
 
 Apply `ClientDocumentRequests` with the setup migration command. It preserves existing tokens/revocations, classifies existing library documents as `Standard`, and maps existing upload links to their initial or previously completed workflow status. No tests were added for Feature 7; validation uses compilation and migration/model checks.
 
@@ -348,6 +348,24 @@ Finalization owns its transaction and claims the document row before generation.
 As with other private files, filesystem/database commit acknowledgement can be ambiguous after a process/network failure. A published file is retained when commit outcome is unknown so a committed signed record cannot lose its bytes. Reconcile unreferenced files using the private-storage recovery procedure above; there is no cleanup worker.
 
 Apply `TypedPdfSigning` with the setup migration command. Existing signing invitations are assigned one owner per document, preferring a completed workflow, then the newest active invitation; other invitations are revoked/replaced. Legacy Viewed/Started timestamps use creation time because earlier infrastructure stored only progress. Legacy completed workflows remain locked/readable through their existing final file; signer/consent audit data is never invented retroactively. New signing operations always produce the full audit. No tests were added or run for Feature 8; validation uses compilation and migration/model checks.
+
+## Matter activity and Admin notifications (Feature 9)
+
+Feature 9 reuses `GET /api/v1/matters/{id}/activities` and `GET /api/v1/notifications`. Both require an authenticated Admin through the existing authorization policy. No new endpoints or database migration are needed.
+
+The matter history includes document uploads and versions, submission reviews, task and deadline changes, and signing progress. Creating an upload request, reissuing an external link, and revoking a request now also record dated activity. Activity and saved response/signing notifications commit with the workflow change; an unchanged operation adds no activity. Email-related activity describes the committed request or link change, while the existing delivery attempts report SMTP success or failure.
+
+The notification endpoint retains `search`, `page` and `pageSize` and the paged response envelope. Items now include `kind`, `isActionable`, optional `taskId`, `deadlineId` and `dueDate`, along with the existing matter, request, document version, message and timestamp fields:
+
+- Saved `DocumentResponse` and `SignatureActivity` events remain historical with `isActionable: false`.
+- Live `AwaitingUpload`, `SubmissionAwaitingReview`, `CorrectionsRequired` and `SignaturePending` items describe outstanding requests. These have a null notification `id`; their `requestId` identifies the workflow. Review requirements use the latest submission timestamp and correction requirements use its review timestamp; other request requirements use the request creation time. A saved response and its current review requirement may both appear, with different kinds and actionable flags.
+- Live `OverdueTask` and `OverdueDeadline` items include their resource ID and due date, with null notification `id`, `requestId`, `documentVersionId` and `createdAtUtc`. They only appear for pending work dated before the current UTC day; completed, undated, today and future work is excluded.
+
+Actionable items sort first, with overdue work ordered by due date, followed by request requirements and then historical events by timestamp descending. Additional resource IDs provide stable ordering for ties. Live actions come from current committed records and are never stored as extra notifications. Completed, accepted, revoked, expired or replaced requests and archived matters produce no live actions. Their historical events remain readable. Completing or deleting work removes its overdue item on the next read; reopening an overdue task restores it.
+
+Activity and notification DTOs expose only their selected display fields and resource IDs. Internal note text, review explanations, request instructions, credentials, link tokens/hashes and private storage keys/paths are excluded. Dedicated Admin note and request APIs retain their existing data.
+
+No counts beyond the existing pagination total, read/unread state, reminder-management API, real-time delivery, scheduled job or message bus is added. No tests were added or run for Feature 9. Validation used a solution build and manual HTTP checks against an isolated temporary PostgreSQL database for authorization, pagination/search, privacy, inactive requests, completion/reopening, review and request activity.
 
 ## Tests
 

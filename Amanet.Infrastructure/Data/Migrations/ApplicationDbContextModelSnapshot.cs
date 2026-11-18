@@ -185,7 +185,7 @@ namespace Amanet.Infrastructure.Data.Migrations
 
                     b.ToTable("DocumentVersions", null, t =>
                         {
-                            t.HasCheckConstraint("CK_DocumentVersions_Length", "\"ByteLength\" > 0 AND \"ByteLength\" <= 20971520");
+                            t.HasCheckConstraint("CK_DocumentVersions_Length", "\"ByteLength\" > 0 AND \"ByteLength\" <= 26214400");
 
                             t.HasCheckConstraint("CK_DocumentVersions_Number", "\"VersionNumber\" > 0");
                         });
@@ -238,6 +238,9 @@ namespace Amanet.Infrastructure.Data.Migrations
                         .HasMaxLength(10)
                         .HasColumnType("character varying(10)");
 
+                    b.Property<int?>("AdminSignerId")
+                        .HasColumnType("integer");
+
                     b.Property<DateTimeOffset?>("CompletedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -273,11 +276,28 @@ namespace Amanet.Infrastructure.Data.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<DateTimeOffset?>("ReplacedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<DateTimeOffset?>("RevokedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
                     b.Property<int?>("SignedDocumentVersionId")
                         .HasColumnType("integer");
+
+                    b.Property<string>("SignerKind")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("SigningConsentText")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<int?>("SigningDocumentId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset?>("StartedAtUtc")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Title")
                         .IsRequired()
@@ -302,11 +322,19 @@ namespace Amanet.Infrastructure.Data.Migrations
                         .HasColumnType("xid")
                         .HasColumnName("xmin");
 
+                    b.Property<DateTimeOffset?>("ViewedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.HasKey("Id");
+
+                    b.HasIndex("AdminSignerId");
 
                     b.HasIndex("DocumentVersionId");
 
                     b.HasIndex("SignedDocumentVersionId");
+
+                    b.HasIndex("SigningDocumentId")
+                        .IsUnique();
 
                     b.HasIndex("UploadedDocumentId")
                         .IsUnique();
@@ -471,6 +499,9 @@ namespace Amanet.Infrastructure.Data.Migrations
                     b.Property<int>("MatterId")
                         .HasColumnType("integer");
 
+                    b.Property<DateTimeOffset?>("SignedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("Title")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -553,6 +584,66 @@ namespace Amanet.Infrastructure.Data.Migrations
                     b.HasIndex("MatterId");
 
                     b.ToTable("MatterTasks");
+                });
+
+            modelBuilder.Entity("Amanet.Core.Entities.SignedDocument", b =>
+                {
+                    b.Property<Guid>("RequestId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int?>("AdminSignerId")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ConsentText")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<int>("DocumentId")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("FinalVersionId")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTimeOffset>("SignedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("SignerEmail")
+                        .IsRequired()
+                        .HasMaxLength(254)
+                        .HasColumnType("character varying(254)");
+
+                    b.Property<string>("SignerKind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("SignerName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("SourceSha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<int>("SourceVersionId")
+                        .HasColumnType("integer");
+
+                    b.HasKey("RequestId");
+
+                    b.HasIndex("AdminSignerId");
+
+                    b.HasIndex("DocumentId")
+                        .IsUnique();
+
+                    b.HasIndex("FinalVersionId")
+                        .IsUnique();
+
+                    b.HasIndex("SourceVersionId");
+
+                    b.ToTable("SignedDocuments");
                 });
 
             modelBuilder.Entity("Amanet.Infrastructure.Identity.ApplicationUser", b =>
@@ -834,6 +925,11 @@ namespace Amanet.Infrastructure.Data.Migrations
 
             modelBuilder.Entity("Amanet.Core.Entities.ExternalRequest", b =>
                 {
+                    b.HasOne("Amanet.Infrastructure.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("AdminSignerId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("Amanet.Core.Entities.DocumentVersion", null)
                         .WithMany()
                         .HasForeignKey("DocumentVersionId")
@@ -845,9 +941,14 @@ namespace Amanet.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("Amanet.Core.Entities.DocumentVersion", null)
+                    b.HasOne("Amanet.Core.Entities.DocumentVersion", "SignedDocumentVersion")
                         .WithMany()
                         .HasForeignKey("SignedDocumentVersionId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Amanet.Core.Entities.MatterDocument", null)
+                        .WithMany()
+                        .HasForeignKey("SigningDocumentId")
                         .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("Amanet.Core.Entities.MatterDocument", "UploadedDocument")
@@ -856,6 +957,8 @@ namespace Amanet.Infrastructure.Data.Migrations
                         .OnDelete(DeleteBehavior.Restrict);
 
                     b.Navigation("Matter");
+
+                    b.Navigation("SignedDocumentVersion");
 
                     b.Navigation("UploadedDocument");
                 });
@@ -930,6 +1033,46 @@ namespace Amanet.Infrastructure.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("Matter");
+                });
+
+            modelBuilder.Entity("Amanet.Core.Entities.SignedDocument", b =>
+                {
+                    b.HasOne("Amanet.Infrastructure.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("AdminSignerId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("Amanet.Core.Entities.MatterDocument", "Document")
+                        .WithOne()
+                        .HasForeignKey("Amanet.Core.Entities.SignedDocument", "DocumentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Amanet.Core.Entities.DocumentVersion", "FinalVersion")
+                        .WithMany()
+                        .HasForeignKey("FinalVersionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Amanet.Core.Entities.ExternalRequest", "Request")
+                        .WithOne()
+                        .HasForeignKey("Amanet.Core.Entities.SignedDocument", "RequestId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Amanet.Core.Entities.DocumentVersion", "SourceVersion")
+                        .WithMany()
+                        .HasForeignKey("SourceVersionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Document");
+
+                    b.Navigation("FinalVersion");
+
+                    b.Navigation("Request");
+
+                    b.Navigation("SourceVersion");
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<int>", b =>

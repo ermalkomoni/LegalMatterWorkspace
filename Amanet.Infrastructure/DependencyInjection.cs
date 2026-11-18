@@ -73,6 +73,8 @@ public static class DependencyInjection
         services.AddScoped<IExternalRequestService, ExternalRequestService>();
         services.AddScoped<IClientDocumentRequestService, ClientDocumentRequestService>();
         services.AddScoped<IAdminNotificationService, AdminNotificationService>();
+        services.AddScoped<ISigningService, SigningService>();
+        services.AddScoped<PdfSigningGenerator>();
 
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             .AddJwtBearer(bearer =>

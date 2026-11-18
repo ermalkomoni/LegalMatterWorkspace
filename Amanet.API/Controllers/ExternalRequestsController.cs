@@ -66,7 +66,8 @@ public sealed class ExternalRequestsController(IExternalRequestService requests,
 [EnableRateLimiting("ExternalLinks")]
 [ResponseCache(NoStore = true, Location = ResponseCacheLocation.None)]
 [Route("api/v{version:apiVersion}/external")]
-public sealed class PublicExternalRequestsController(IExternalRequestService requests, IClientDocumentRequestService submissions) : BaseController
+public sealed class PublicExternalRequestsController(IExternalRequestService requests, IClientDocumentRequestService submissions,
+    ISigningService signing) : BaseController
 {
     [HttpGet("{linkAction}/{requestId:guid}")]
     public async Task<ActionResult<PublicRequestContext>> Context(string linkAction, Guid requestId,
@@ -85,14 +86,35 @@ public sealed class PublicExternalRequestsController(IExternalRequestService req
     }
 
     [HttpGet("sign/{requestId:guid}/file")]
-    public async Task<FileStreamResult> Pdf(Guid requestId, CancellationToken cancellationToken)
+    public async Task<FileStreamResult> Pdf(Guid requestId, CancellationToken cancellationToken, [FromQuery] bool download = false)
     {
         ProtectResponse();
         var file = await requests.OpenPdfAsync(requestId, LinkToken(), cancellationToken);
-        var disposition = new ContentDispositionHeaderValue("inline");
+        var disposition = new ContentDispositionHeaderValue(download ? "attachment" : "inline");
         disposition.SetHttpFileName(file.FileName);
         Response.Headers.ContentDisposition = disposition.ToString();
         return new FileStreamResult(file.Content, "application/pdf");
+    }
+
+    [HttpPost("sign/{requestId:guid}/viewed")]
+    public Task<PublicRequestContext> Viewed(Guid requestId, CancellationToken cancellationToken)
+    {
+        ProtectResponse();
+        return signing.AdvanceAsync(requestId, LinkToken(), RequestProgress.Viewed, cancellationToken);
+    }
+
+    [HttpPost("sign/{requestId:guid}/started")]
+    public Task<PublicRequestContext> Started(Guid requestId, CancellationToken cancellationToken)
+    {
+        ProtectResponse();
+        return signing.AdvanceAsync(requestId, LinkToken(), RequestProgress.Started, cancellationToken);
+    }
+
+    [HttpPost("sign/{requestId:guid}")]
+    public Task<SignatureDto> Sign(Guid requestId, SignRequest input, CancellationToken cancellationToken)
+    {
+        ProtectResponse();
+        return signing.SignClientAsync(requestId, LinkToken(), input, cancellationToken);
     }
 
     [HttpPost("upload/{requestId:guid}")]
@@ -116,6 +138,25 @@ public sealed class PublicExternalRequestsController(IExternalRequestService req
         Response.Headers.CacheControl = "no-store";
         Response.Headers["Referrer-Policy"] = "no-referrer";
         Response.Headers.XContentTypeOptions = "nosniff";
+    }
+}
+
+[Route("api/v{version:apiVersion}/matters/{matterId:int}/documents/{documentId:int}")]
+public sealed class AdminSigningController(ISigningService signing) : BaseController
+{
+    [HttpPost("sign")]
+    public async Task<ActionResult<SignatureDto>> Sign(int matterId, int documentId, AdminSignRequest input,
+        CancellationToken cancellationToken)
+    {
+        if (!int.TryParse(User.FindFirst("sub")?.Value, out var adminId))
+            return Unauthorized();
+        return await signing.SignAdminAsync(matterId, documentId, input, adminId, cancellationToken);
+    }
+
+    [HttpGet("signature")]
+    public Task<SignatureDto> Get(int matterId, int documentId, CancellationToken cancellationToken)
+    {
+        return signing.GetAsync(matterId, documentId, cancellationToken);
     }
 }
 

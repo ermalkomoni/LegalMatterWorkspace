@@ -36,7 +36,8 @@ public sealed record ExternalRequestDto(Guid Id, int MatterId, ExternalAction Ac
     string Title, RequestProgress Progress, DateTimeOffset ExpiresAtUtc, DateTimeOffset? RevokedAtUtc,
     DateTimeOffset? CompletedAtUtc, IReadOnlyList<DeliveryAttemptDto> DeliveryAttempts,
     string RecipientName, string Instructions, DocumentRequestStatus? UploadStatus, int? UploadedDocumentId,
-    IReadOnlyList<DocumentSubmissionDto> Submissions);
+    IReadOnlyList<DocumentSubmissionDto> Submissions, int? SourceVersionId, SignerKind? SignerKind,
+    DateTimeOffset? ViewedAtUtc, DateTimeOffset? StartedAtUtc, DateTimeOffset? ReplacedAtUtc);
 
 public sealed record DocumentSubmissionDto(int DocumentVersionId, int DocumentId, int VersionNumber,
     string FileName, DateTimeOffset SubmittedAtUtc, SubmissionDecision? Decision,
@@ -53,7 +54,9 @@ public sealed class ReviewSubmissionRequest
 // Deliberate allowlist: no matter/client navigation, notes, recipient address or storage identifiers.
 public sealed record PublicRequestContext(Guid RequestId, ExternalAction Action, string Title,
     RequestProgress Progress, DateTimeOffset ExpiresAtUtc, bool CanSubmit, bool CanReadPdf,
-    string RecipientName, string Instructions, DocumentRequestStatus? UploadStatus, string? CorrectionExplanation);
+    string RecipientName, string Instructions, DocumentRequestStatus? UploadStatus, string? CorrectionExplanation,
+    string? ConsentText = null, string? SourceSha256 = null, DateTimeOffset? SentAtUtc = null,
+    DateTimeOffset? ViewedAtUtc = null, DateTimeOffset? StartedAtUtc = null, DateTimeOffset? SignedAtUtc = null);
 
 public interface IExternalRequestService
 {
@@ -67,12 +70,10 @@ public interface IExternalRequestService
     Task<DocumentFile> OpenPdfAsync(Guid requestId, string? token, CancellationToken cancellationToken);
 
     // Returns a fresh, untracked snapshot so validation never trusts cached link/matter state.
-    // Workflow services call this for every public operation. CompleteAsync completes signing only;
-    // document requests finish through the version-specific review operation.
+    // Workflow services call this for every public operation. Signing and document-review services
+    // own completion; a link alone can never mark a document as signed.
     Task<ExternalRequest> ValidateAsync(Guid requestId, ExternalAction action, string? token,
         bool forSubmission, CancellationToken cancellationToken);
-    Task CompleteAsync(Guid requestId, ExternalAction action, string? token, int? signedDocumentVersionId,
-        CancellationToken cancellationToken);
 }
 
 public interface IClientDocumentRequestService
@@ -91,6 +92,7 @@ public interface IAdminNotificationService
 {
     // Adds to the current unit of work; the workflow owns the save/transaction.
     void RecordSubmission(ExternalRequest request, DocumentVersion version);
+    void RecordSigning(ExternalRequest request, DocumentVersion version, string message);
     Task<PagedResult<AdminNotificationDto>> ListAsync(ListQuery query, CancellationToken cancellationToken);
 }
 
@@ -98,4 +100,36 @@ public interface IEmailSender
 {
     // The body is transient. Implementations must never log or persist it or SMTP exception details.
     Task SendAsync(string recipient, string subject, string textBody, CancellationToken cancellationToken);
+}
+
+public static class SigningConsent
+{
+    public const string Text = "I have reviewed this document and agree to sign it electronically using my typed name.";
+}
+
+public class SignRequest
+{
+    [Required, StringLength(200)]
+    public string TypedName { get; init; } = string.Empty;
+    [Required]
+    public bool? ConsentAccepted { get; init; }
+}
+
+public sealed class AdminSignRequest : SignRequest
+{
+    [Range(1, int.MaxValue)]
+    public int SourceVersionId { get; init; }
+}
+
+public sealed record SignatureDto(Guid RequestId, int DocumentId, int SourceVersionId, string SourceSha256,
+    int FinalVersionId, int FinalVersionNumber, string FinalFileName, string FinalSha256,
+    SignerKind SignerKind, string SignerName, string SignerEmail, int? AdminSignerId,
+    DateTimeOffset SignedAtUtc, string ConsentText);
+
+public interface ISigningService
+{
+    Task<SignatureDto> SignAdminAsync(int matterId, int documentId, AdminSignRequest input, int adminId, CancellationToken cancellationToken);
+    Task<SignatureDto> SignClientAsync(Guid requestId, string? token, SignRequest input, CancellationToken cancellationToken);
+    Task<PublicRequestContext> AdvanceAsync(Guid requestId, string? token, RequestProgress progress, CancellationToken cancellationToken);
+    Task<SignatureDto> GetAsync(int matterId, int documentId, CancellationToken cancellationToken);
 }

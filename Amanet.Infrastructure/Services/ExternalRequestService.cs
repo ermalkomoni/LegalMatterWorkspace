@@ -105,10 +105,17 @@ public sealed class ExternalRequestService(ApplicationDbContext db, IEmailSender
 
     public async Task<ExternalRequestDto> RevokeAsync(int matterId, Guid requestId, CancellationToken cancellationToken)
     {
-        // Revoke the current link atomically, even if this context tracked an older revoked link.
-        await db.ExternalRequests.Where(request => request.MatterId == matterId && request.Id == requestId &&
-                request.RevokedAtUtc == null)
-            .ExecuteUpdateAsync(update => update.SetProperty(request => request.RevokedAtUtc, DateTimeOffset.UtcNow), cancellationToken);
+        var request = await FindAsync(matterId, requestId, cancellationToken);
+        // Refresh in case this context tracked the request before its latest rotation or revocation.
+        await db.Entry(request).ReloadAsync(cancellationToken);
+        await db.Entry(request.Matter).ReloadAsync(cancellationToken);
+        if (request.RevokedAtUtc is null)
+        {
+            request.RevokedAtUtc = DateTimeOffset.UtcNow;
+            activities.Record(request.Matter, MatterActivityType.ExternalRequestRevoked,
+                $"External request #{request.Id} revoked.");
+            await SaveAsync(request, cancellationToken);
+        }
         return await GetAsync(matterId, requestId, cancellationToken);
     }
 
@@ -213,6 +220,12 @@ public sealed class ExternalRequestService(ApplicationDbContext db, IEmailSender
             if (expiresAtUtc <= now)
                 throw new FluentValidation.ValidationException(
                     [new ValidationFailure("ExpiresAtUtc", "Expiry must be in the future.")]);
+            if (db.Entry(request).State != EntityState.Added)
+                activities.Record(request.Matter, MatterActivityType.ExternalRequestResent,
+                    $"External request #{request.Id} reissued.");
+            else if (request.Action == ExternalAction.Upload)
+                activities.Record(request.Matter, MatterActivityType.DocumentRequested,
+                    $"Document request #{request.Id} created.");
             request.TokenHash = Convert.ToHexStringLower(Hash(token));
             request.ExpiresAtUtc = expiresAtUtc?.ToUniversalTime() ?? now.AddDays(options.Value.ExpiryDays);
             request.RevokedAtUtc = null;

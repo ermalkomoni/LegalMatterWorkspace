@@ -10,7 +10,7 @@
 | Amanet.Application | DTOs, service contracts, commands, queries and validation |
 | Amanet.Infrastructure | EF Core/PostgreSQL, Identity, private PDF storage, authentication and seeding |
 | Amanet.API | Controllers, HTTP configuration and Swagger |
-| Amanet.Tests | Health/Swagger smoke checks and focused external-link regression tests |
+| Amanet.Tests | Health/Swagger smoke checks |
 
 Controllers inherit `BaseController` for API version `1.0` and `/api/v{version}/[controller]` routes. The default and fallback policies require the Admin role, including for new controllers. Login, health, and the explicitly scoped public-link controller allow anonymous access.
 
@@ -311,9 +311,9 @@ Review uses the submission's **`documentVersionId`**, not its sequential version
 
 The first upload creates a `ReviewPending` document in the request's matter. Corrections append immutable versions to that same document. Client versions use `ClientUpload` as their source and a null Admin uploader ID. Acceptance changes the classification to `Accepted`. Only the exact accepted submission version is eligible for signing; other versions of that client document are rejected by the shared signing guard. Admin-created documents retain `Standard` classification. Request status/classification cannot be changed through document metadata edits, and the Admin version-upload endpoint cannot bypass client review.
 
-Submission status, document/version metadata, submission history, matter activity and an Admin notification commit in one EF transaction. Review status, the version-bound decision and activity also commit together; corrections include the rotated token and pending delivery attempt in that same commit before SMTP. Request/matter concurrency tokens reject concurrent uploads, reviews, revocation or archive changes. Archived matter writes are rejected. Public uploads reuse the existing 20 MiB PDF validation, private staging/promotion and failure cleanup. After a successful commit, failure to deliver the response does not delete the stored PDF. The filesystem/database crash-recovery limitation described above still applies.
+Submission status, document/version metadata, submission history, matter activity and an Admin notification commit in one EF transaction. Review status, the version-bound decision and activity also commit together; corrections include the rotated token and pending delivery attempt in that same commit before SMTP. Upload/review operations own their commit and reject caller-owned or ambient transactions before staging changes or files. Request/matter concurrency tokens reject concurrent uploads, reviews, revocation or archive changes; review lookups also check the persisted unreviewed state so a cached entity cannot overwrite an earlier decision. Archived matter writes are rejected. Public uploads reuse the existing 20 MiB PDF validation, private staging/promotion and failure cleanup. A successful upload returns its committed `Submitted` receipt without another database read or token check that could turn a committed upload into a reported failure. Failure to deliver the response does not delete the stored PDF. The filesystem/database crash-recovery limitation described above still applies.
 
-Notifications are a small persisted Admin inbox: the writer adds a row to the submission's unit of work, and the read endpoint provides pagination. There is no notification worker or separate delivery system.
+Notifications are a small persisted Admin inbox: the writer adds a row identifying the request title and version to the submission's unit of work, and the read endpoint provides pagination. There is no notification worker or separate delivery system.
 
 Apply `ClientDocumentRequests` with the setup migration command. It preserves existing tokens/revocations, classifies existing library documents as `Standard`, and maps existing upload links to their initial or previously completed workflow status. No tests were added for Feature 7; validation uses compilation and migration/model checks.
 

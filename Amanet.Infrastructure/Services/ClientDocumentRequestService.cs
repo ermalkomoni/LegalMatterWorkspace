@@ -18,6 +18,7 @@ public sealed class ClientDocumentRequestService(ApplicationDbContext db, IExter
     public async Task<PublicRequestContext> UploadAsync(Guid requestId, string? token, Stream content, string fileName,
         CancellationToken cancellationToken)
     {
+        EnsureCanCommit();
         var validated = await links.ValidateAsync(requestId, ExternalAction.Upload, token, true, cancellationToken);
         var request = await FindAsync(validated.MatterId, requestId, cancellationToken);
         EnsureCurrent(request, validated);
@@ -68,13 +69,16 @@ public sealed class ClientDocumentRequestService(ApplicationDbContext db, IExter
             storage.Delete(stored.Key);
             throw;
         }
-        // After commit, never delete the published PDF if response delivery or a later read fails.
-        return await links.GetContextAsync(requestId, ExternalAction.Upload, token, cancellationToken);
+        // Return the committed receipt. Revalidating here can report failure after a successful upload
+        // if a link expires/is revoked or the database becomes unavailable immediately after commit.
+        return new PublicRequestContext(request.Id, ExternalAction.Upload, request.Title, request.Progress,
+            request.ExpiresAtUtc, false, false, request.RecipientName, request.Instructions, request.UploadStatus, null);
     }
 
     public async Task<ExternalRequestDto> ReviewAsync(int matterId, Guid requestId, int versionId,
         ReviewSubmissionRequest input, int reviewerId, CancellationToken cancellationToken)
     {
+        EnsureCanCommit();
         if (!input.Decision.HasValue || !Enum.IsDefined(input.Decision.Value))
             throw new ValidationException([new ValidationFailure("Decision", "Choose acceptance or corrections.")]);
         if (input.Decision == SubmissionDecision.CorrectionsRequested && string.IsNullOrWhiteSpace(input.Explanation))
@@ -87,6 +91,7 @@ public sealed class ClientDocumentRequestService(ApplicationDbContext db, IExter
             throw new UnauthorizedAccessException();
         var submission = await db.DocumentSubmissions.Include(item => item.DocumentVersion)
             .SingleOrDefaultAsync(item => item.ExternalRequestId == requestId && item.DocumentVersionId == versionId &&
+                item.Decision == null &&
                 item.DocumentVersion.DocumentId == request.UploadedDocumentId && item.DocumentVersion.Document.MatterId == matterId,
                 cancellationToken) ?? throw new ResourceNotFoundException("Submission not found.");
         if (request.UploadStatus != DocumentRequestStatus.Submitted || submission.Decision.HasValue)
@@ -133,6 +138,14 @@ public sealed class ClientDocumentRequestService(ApplicationDbContext db, IExter
             throw new ConflictException("The request or matter changed. Reload it and try again.");
     }
 
+    private void EnsureCanCommit()
+    {
+        // Reject before tracking workflow changes or writing a file: neither a file promotion nor
+        // an SMTP send can participate in a caller's later database rollback.
+        if (db.Database.CurrentTransaction is not null || System.Transactions.Transaction.Current is not null)
+            throw new ConflictException("Submit and review documents outside an open database transaction.");
+    }
+
     private async Task SaveAsync(ExternalRequest request, CancellationToken cancellationToken)
     {
         request.Matter.UpdatedAtUtc = DateTimeOffset.UtcNow;
@@ -147,7 +160,7 @@ public sealed class ClientDocumentRequestService(ApplicationDbContext db, IExter
             throw new ConflictException("The request or matter changed. Reload it and try again.");
         }
         catch (DbUpdateException exception) when (exception.InnerException is PostgresException
-            { SqlState: PostgresErrorCodes.UniqueViolation })
+            { SqlState: PostgresErrorCodes.UniqueViolation, ConstraintName: "IX_DocumentVersions_DocumentId_VersionNumber" })
         {
             throw new ConflictException("A submission was saved concurrently. Reload the request and try again.");
         }

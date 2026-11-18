@@ -13,7 +13,8 @@ public sealed class AdminNotificationService(ApplicationDbContext db) : IAdminNo
         db.AdminNotifications.Add(new AdminNotification
         {
             Matter = request.Matter, ExternalRequest = request, DocumentVersion = version,
-            Message = "A client submitted a requested PDF for review.", CreatedAtUtc = version.UploadedAtUtc
+            Message = $"PDF submitted for review: {request.Title} (version {version.VersionNumber}).",
+            CreatedAtUtc = version.UploadedAtUtc
         });
     }
 

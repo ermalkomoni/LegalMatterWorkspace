@@ -77,6 +77,7 @@ public interface IExternalRequestService
 
 public interface IClientDocumentRequestService
 {
+    // These operations own their commit; call outside caller-owned or ambient database transactions.
     Task<PublicRequestContext> UploadAsync(Guid requestId, string? token, Stream content, string fileName,
         CancellationToken cancellationToken);
     Task<ExternalRequestDto> ReviewAsync(int matterId, Guid requestId, int versionId,

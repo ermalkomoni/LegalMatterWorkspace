@@ -1,13 +1,16 @@
 using Amanet.Application.Services;
 using Amanet.Infrastructure.Data;
 using Amanet.Infrastructure.Identity;
+using Amanet.Infrastructure.Pdf;
 using Amanet.Infrastructure.Services;
+using Amanet.Infrastructure.Storage;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
+using PdfSharp.Fonts;
 
 namespace Amanet.Infrastructure;
 
@@ -16,6 +19,7 @@ public static class DependencyInjection
     public static IServiceCollection AddInfrastructureServices(this IServiceCollection services,
         IConfiguration configuration)
     {
+        GlobalFontSettings.FontResolver ??= new BundledFontResolver();
         var connectionString = configuration.GetConnectionString("DefaultConnection");
         if (string.IsNullOrWhiteSpace(connectionString))
         {
@@ -58,6 +62,8 @@ public static class DependencyInjection
         services.AddScoped<IMatterTaskService, MatterTaskService>();
         services.AddScoped<IMatterNoteService, MatterNoteService>();
         services.AddScoped<IMatterDeadlineService, MatterDeadlineService>();
+        services.AddSingleton<PrivateDocumentStorage>();
+        services.AddScoped<IDocumentService, DocumentService>();
 
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             .AddJwtBearer(bearer =>

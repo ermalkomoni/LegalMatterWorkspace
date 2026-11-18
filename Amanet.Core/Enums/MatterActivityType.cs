@@ -8,5 +8,6 @@ public enum MatterActivityType
     DeadlineCreated, DeadlineUpdated, DeadlineCompleted, DeadlineDeleted,
     DocumentUploaded, DocumentVersionUploaded, DocumentUpdated,
     ClientDocumentSubmitted, SubmissionAccepted, CorrectionsRequested,
-    SigningSent, SigningViewed, SigningStarted, DocumentSigned
+    SigningSent, SigningViewed, SigningStarted, DocumentSigned,
+    DocumentRequested, ExternalRequestResent, ExternalRequestRevoked
 }

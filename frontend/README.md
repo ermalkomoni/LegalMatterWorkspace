@@ -7,16 +7,18 @@ npm ci
 npm run dev -- --port 3000
 ```
 
-Open [the local frontend](http://localhost:3000). The scaffold page runs independently of the API. For API-backed features, copy `.env.example` to `.env.local` and set `NEXT_PUBLIC_API_BASE_URL` to the public API base URL. The local default is `http://localhost:5109/api/v1`.
+Open [the local frontend](http://localhost:3000). Sign in with the Admin account provisioned by the [backend setup](../README.md#run-locally). The frontend defaults to `http://localhost:5109/api/v1`. To use another API, copy `.env.example` to `.env.local` and set `NEXT_PUBLIC_API_BASE_URL`. If you change the frontend origin, update the backend's `ExternalLinks:FrontendBaseUrl` so its CORS policy accepts requests.
 
 Run `npm run build` to verify a production build. Run `npm start` to serve that build.
+
+The Admin workspace is at `/` and sign-in is at `/login`. The browser stores the bearer token and its expiry in session storage for the current tab. Keep protected data requests in client components inside the protected layout so they run only after the session is established. The API enforces Admin authorization.
 
 ## Folder layout
 
 | Folder | Responsibility |
 | --- | --- |
 | `src/app/` | Next.js App Router pages and layouts. |
-| `src/app/(admin)/` | Admin routes grouped without adding a URL segment. |
+| `src/app/(admin)/` | Admin session layout and sign-in. Workspace routes belong in `(protected)/`. |
 | `src/app/external/` | Public link routes under `/external`. |
 | `src/features/` | Domain-specific forms, views, and API calls grouped by feature. |
 | `src/components/` | UI shared across features. |

@@ -10,6 +10,14 @@
   }
 
   .admin-secondary {
-    @apply inline-flex min-h-11 items-center justify-center whitespace-nowrap rounded-lg border border-stone-300 bg-white px-4 py-2.5 text-sm font-semibold hover:bg-stone-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-700;
+    @apply inline-flex min-h-11 items-center justify-center whitespace-nowrap rounded-lg border border-stone-300 bg-white px-4 py-2.5 text-sm font-semibold hover:bg-stone-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-700 disabled:opacity-50;
+  }
+
+  .admin-link {
+    @apply rounded-sm font-semibold text-neutral-900 underline decoration-stone-400 underline-offset-4 hover:text-red-800 focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-red-700;
+  }
+
+  .admin-panel {
+    @apply rounded-xl border border-stone-200 bg-white shadow-sm;
   }
 }

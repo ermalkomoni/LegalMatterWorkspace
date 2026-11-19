@@ -2,7 +2,24 @@ const apiBaseUrl = (
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:5109/api/v1"
 ).replace(/\/+$/, "");
 
-type FieldErrors = Record<string, string[]>;
+export type FieldErrors = Record<string, string[]>;
+export type ApiPath = `/${string}`;
+
+export function apiPath(path: ApiPath, params: Record<string, string | number>): ApiPath {
+  const search = new URLSearchParams();
+  for (const [name, value] of Object.entries(params)) {
+    if (value !== "") search.set(name, String(value));
+  }
+  return `${path}?${search}`;
+}
+
+export function jsonRequest(method: "POST" | "PUT", value: object): RequestInit {
+  return {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(value),
+  };
+}
 
 export class ApiError extends Error {
   constructor(
@@ -24,7 +41,7 @@ export class SessionExpiredError extends ApiError {
 type ApiOptions = RequestInit & { adminToken?: string };
 
 export async function fetchJson<T>(
-  path: `/${string}`,
+  path: ApiPath,
   { adminToken, ...options }: ApiOptions = {},
 ): Promise<T> {
   const headers = new Headers(options.headers);

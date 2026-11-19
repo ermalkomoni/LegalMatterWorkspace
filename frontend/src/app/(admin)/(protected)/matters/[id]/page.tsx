@@ -1,10 +1,17 @@
 import { notFound } from "next/navigation";
 import { MatterDetails } from "@/features/matters/matter-page";
+import { parseRouteId } from "@/lib/route-params";
 
 export default async function MatterPage({ params, searchParams }: PageProps<"/matters/[id]">) {
   const { id } = await params;
-  if (!/^\d+$/.test(id) || Number(id) < 1 || Number(id) > 2147483647) notFound();
+  const matterId = parseRouteId(id);
+  if (matterId === null) notFound();
 
-  const { created } = await searchParams;
-  return <MatterDetails key={id} id={Number(id)} created={created === "1"} />;
+  const { created, fromNotifications, taskId, deadlineId } = await searchParams;
+  const task = parseRouteId(taskId);
+  const deadline = parseRouteId(deadlineId);
+  const target = task !== null ? { collection: "tasks" as const, id: task }
+    : deadline !== null ? { collection: "deadlines" as const, id: deadline } : undefined;
+  return <MatterDetails key={id} id={matterId} created={created === "1"}
+    fromNotifications={fromNotifications === "1"} target={target} />;
 }

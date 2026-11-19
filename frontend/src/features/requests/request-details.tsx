@@ -5,6 +5,7 @@ import { useState } from "react";
 import { BackLink, DetailValue, Feedback, LoadError, PageHeading, Timestamp } from "@/components/workspace-ui";
 import { useAdminSession } from "@/features/auth/admin-session";
 import { useAdminQuery } from "@/features/auth/use-admin-query";
+import { documentHref } from "@/features/documents/document-types";
 import type { Matter } from "@/features/matters/matter-types";
 import { ApiError, jsonRequest } from "@/lib/api";
 import { RequestDelivery } from "./request-delivery";
@@ -26,7 +27,12 @@ function emailResult(request: ExternalRequest) {
   }
 }
 
-export function RequestDetails({ matterId, requestId, created }: { matterId: number; requestId: string; created: boolean }) {
+export function RequestDetails({ matterId, requestId, created, fromNotifications }: {
+  matterId: number;
+  requestId: string;
+  created: boolean;
+  fromNotifications: boolean;
+}) {
   const { request } = useAdminSession();
   const path = `${externalRequestsPath(matterId)}/${requestId}` as const;
   const record = useAdminQuery<ExternalRequest>(path);
@@ -34,6 +40,8 @@ export function RequestDetails({ matterId, requestId, created }: { matterId: num
   const [busy, setBusy] = useState<Area | null>(null);
   const [feedback, setFeedback] = useState<ActionFeedback | null>(null);
   const item = record.data && (isUploadRequest(record.data) || isSigningRequest(record.data)) ? record.data : null;
+  const adminSignature = record.data?.action === "Sign" && record.data.signerKind === "Admin" ? record.data : null;
+  const detail = item ?? adminSignature;
   const archived = !!matter.data?.archivedAtUtc;
   const writable = !!matter.data && !archived;
   const availability = item ? linkStatus(item) : null;
@@ -65,9 +73,11 @@ export function RequestDetails({ matterId, requestId, created }: { matterId: num
 
   return (
     <>
-      <BackLink href={requestListHref(matterId)}>Client requests</BackLink>
+      <BackLink href={fromNotifications ? "/notifications" : requestListHref(matterId)}>
+        {fromNotifications ? "Notifications" : "Client requests"}
+      </BackLink>
       {matter.data && <p className="mb-1 text-sm font-semibold text-neutral-600 wrap-anywhere">{matter.data.referenceNumber} · {matter.data.title}</p>}
-      <PageHeading title={item?.title ?? "Client request"} action={item && (
+      <PageHeading title={detail?.title ?? "Request details"} action={item && (
         <button type="button" className="admin-secondary" disabled={!!busy || record.pending} onClick={() => {
           record.refresh();
           matter.refresh();
@@ -76,9 +86,21 @@ export function RequestDetails({ matterId, requestId, created }: { matterId: num
       <div className="space-y-5">
         {record.pending && !record.data && <p role="status" className="text-sm text-neutral-600">Loading request…</p>}
         {record.error && <LoadError error={record.error} resource="Request" onRetry={record.refresh} />}
-        {record.data && !item && <Feedback kind="error">Client request could not be found.</Feedback>}
+        {record.data && !detail && <Feedback kind="error">Request could not be found.</Feedback>}
         {matter.error && <LoadError error={matter.error} resource="Matter" onRetry={matter.refresh} />}
         {archived && <Feedback>This matter is archived. Its requests are read-only.</Feedback>}
+        {adminSignature && (
+          <section className="admin-panel space-y-4 p-4 sm:p-5" aria-labelledby="admin-signature-heading">
+            <h2 id="admin-signature-heading" className="text-xl font-semibold tracking-tight">Admin signature</h2>
+            <dl className="grid gap-4 sm:grid-cols-2">
+              <DetailValue label="Signer">{adminSignature.recipientName}</DetailValue>
+              <DetailValue label="Signed at">{adminSignature.completedAtUtc && <Timestamp value={adminSignature.completedAtUtc} />}</DetailValue>
+            </dl>
+            {adminSignature.signingDocumentId ? (
+              <Link href={documentHref(matterId, adminSignature.signingDocumentId, true)} className="admin-link">View signed document</Link>
+            ) : <Link href={`/documents?matterId=${matterId}`} className="admin-link">Matter documents</Link>}
+          </section>
+        )}
         {item && (
           <>
             {created && !busy && !feedback && <Feedback>Request created. {emailResult(item)}</Feedback>}
@@ -107,7 +129,9 @@ export function RequestDetails({ matterId, requestId, created }: { matterId: num
                 {writable && item.progress !== "Signed" && availability !== "Active" && (
                   <Feedback>Create a new invitation from the document to request a signature again.</Feedback>
                 )}
-                <Link href={`/documents?matterId=${matterId}`} className="admin-link">Matter documents</Link>
+                {item.signingDocumentId ? (
+                  <Link href={documentHref(matterId, item.signingDocumentId, true)} className="admin-link">View document</Link>
+                ) : <Link href={`/documents?matterId=${matterId}`} className="admin-link">Matter documents</Link>}
               </div>
             )}
             <RequestDelivery request={item} busy={!!busy || record.pending} feedback={actionFeedback("delivery")}

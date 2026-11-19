@@ -7,6 +7,7 @@ export default async function RequestPage({ params, searchParams }: PageProps<"/
   const { id, requestId } = await params;
   const matterId = parseRouteId(id);
   if (matterId === null || !isRequestId(requestId)) notFound();
-  const { created } = await searchParams;
-  return <RequestDetails key={`${matterId}-${requestId}`} matterId={matterId} requestId={requestId} created={created === "1"} />;
+  const { created, fromNotifications } = await searchParams;
+  return <RequestDetails key={`${matterId}-${requestId}`} matterId={matterId} requestId={requestId}
+    created={created === "1"} fromNotifications={fromNotifications === "1"} />;
 }

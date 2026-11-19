@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { ApiError, fetchJson, SessionExpiredError } from "@/lib/api";
+import { ApiError, fetchJson, SessionExpiredError, type ApiPath } from "@/lib/api";
 
 const sessionKey = "amanet.adminSession";
 const expiredNotice = "Your session ended. Sign in again to continue.";
@@ -34,6 +34,7 @@ type AdminSessionContextValue = {
   signIn: (credentials: Credentials) => Promise<void>;
   signOut: () => void;
   retry: () => void;
+  request: <T>(path: ApiPath, options?: RequestInit) => Promise<T>;
 };
 
 const AdminSessionContext = createContext<AdminSessionContextValue | null>(null);
@@ -76,6 +77,26 @@ export function AdminSessionProvider({ children }: { children: ReactNode }) {
     clearSavedSession();
     setSession({ status: "signed-out", notice });
   }, []);
+
+  const request = useCallback(async <T,>(path: ApiPath, options?: RequestInit) => {
+    const saved = readSavedSession();
+    if (!saved || saved.expiresAt <= Date.now()) {
+      endSession(expiredNotice);
+      throw new SessionExpiredError(401);
+    }
+
+    try {
+      return await fetchJson<T>(path, { ...options, adminToken: saved.accessToken });
+    } catch (error) {
+      if (
+        error instanceof SessionExpiredError &&
+        readSavedSession()?.accessToken === saved.accessToken
+      ) {
+        endSession(expiredNotice);
+      }
+      throw error;
+    }
+  }, [endSession]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -161,7 +182,7 @@ export function AdminSessionProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AdminSessionContext.Provider value={{ session, signIn, signOut: () => endSession(), retry }}>
+    <AdminSessionContext.Provider value={{ session, signIn, signOut: () => endSession(), retry, request }}>
       {children}
     </AdminSessionContext.Provider>
   );

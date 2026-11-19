@@ -3,6 +3,7 @@ import { Feedback, Field, fieldDescription } from "@/components/workspace-ui";
 import { useAdminSession } from "@/features/auth/admin-session";
 import { ApiError, jsonRequest, type FieldErrors } from "@/lib/api";
 import { documentApiPath, type DocumentVersion, type PdfDocument } from "./document-types";
+import { PdfFileField, invalidPdfError, pdfSizeError, validatePdfFile } from "./pdf-upload";
 
 type DocumentFormProps = {
   onCancel: () => void;
@@ -13,8 +14,6 @@ type DocumentFormProps = {
   | { mode: "metadata"; document: PdfDocument; onSaved: (document: PdfDocument) => void }
 );
 
-const maximumPdfBytes = 20 * 1024 * 1024;
-const sizeError = "Choose a PDF of 20 MiB or less.";
 const formLabels = {
   new: { heading: "Upload a PDF", submit: "Upload PDF" },
   version: { heading: "Upload a new version", submit: "Upload version" },
@@ -26,7 +25,6 @@ export function DocumentForm(props: DocumentFormProps) {
   const { request } = useAdminSession();
   const { heading, submit: submitLabel } = formLabels[mode];
   const id = useId();
-  const helpId = `${id}-file-help`;
   const [title, setTitle] = useState(mode === "metadata" ? props.document.title : "");
   const [category, setCategory] = useState(mode === "metadata" ? props.document.category ?? "" : "");
   const [file, setFile] = useState<File | null>(null);
@@ -41,8 +39,8 @@ export function DocumentForm(props: DocumentFormProps) {
     const fields: FieldErrors = {};
     if (mode !== "version" && !title.trim()) fields.title = ["Enter a title."];
     if (mode !== "metadata") {
-      if (!file?.size) fields.file = ["Choose a nonempty PDF file."];
-      else if (file.size > maximumPdfBytes) fields.file = [sizeError];
+      const fileError = validatePdfFile(file);
+      if (fileError) fields.file = [fileError];
     }
     setErrors(fields);
     if (Object.keys(fields).length) return;
@@ -67,10 +65,10 @@ export function DocumentForm(props: DocumentFormProps) {
       }
     } catch (error) {
       if (error instanceof ApiError && error.status === 413) {
-        setErrors({ file: [sizeError] });
+        setErrors({ file: [pdfSizeError] });
       } else if (error instanceof ApiError && error.status === 400) {
         if (Object.keys(error.fieldErrors).length) setErrors(error.fieldErrors);
-        else if (mode !== "metadata") setErrors({ file: ["Choose a valid, readable PDF with a filename up to 255 characters."] });
+        else if (mode !== "metadata") setErrors({ file: [invalidPdfError] });
         else setFeedback("Check the document details and try again.");
       } else if (error instanceof ApiError && error.status === 409) {
         setFeedback(mode === "version"
@@ -85,7 +83,6 @@ export function DocumentForm(props: DocumentFormProps) {
     }
   }
 
-  const fileError = errors.file?.[0];
   return (
     <form method="post" onSubmit={submit} className="admin-panel p-4 sm:p-5">
       <fieldset disabled={saving} className="min-w-0 space-y-4">
@@ -105,17 +102,10 @@ export function DocumentForm(props: DocumentFormProps) {
           </div>
         )}
         {mode !== "metadata" && (
-          <Field id={`${id}-file`} label="PDF file" error={fileError}>
-            <p id={helpId} className="mt-1 text-sm text-neutral-600">Maximum file size 20 MiB.</p>
-            <input id={`${id}-file`} className="admin-input text-sm file:mr-3 file:font-semibold" type="file"
-              accept=".pdf,application/pdf" autoFocus={mode === "version"} required
-              aria-invalid={fileError ? true : undefined}
-              aria-describedby={fileError ? `${helpId} ${id}-file-error` : helpId}
-              onChange={(event) => {
-                setFile(event.target.files?.[0] ?? null);
-                setErrors((current) => ({ ...current, file: [] }));
-              }} />
-          </Field>
+          <PdfFileField error={errors.file?.[0]} autoFocus={mode === "version"} onChange={(file) => {
+            setFile(file);
+            setErrors((current) => ({ ...current, file: [] }));
+          }} />
         )}
         {feedback && <Feedback kind="error">{feedback}</Feedback>}
         <div className="flex flex-wrap gap-2">

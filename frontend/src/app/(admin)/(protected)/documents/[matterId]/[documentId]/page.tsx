@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { DocumentDetails } from "@/features/documents/document-details";
-import { parseRouteId } from "@/features/documents/document-types";
+import { parseRouteId } from "@/lib/route-params";
 
 export default async function DocumentPage({ params, searchParams }: PageProps<"/documents/[matterId]/[documentId]">) {
   const { matterId, documentId } = await params;

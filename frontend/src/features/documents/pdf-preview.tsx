@@ -6,7 +6,10 @@ import type { DocumentVersion } from "./document-types";
 
 type FileState = { url: string } | { error: unknown } | null;
 
-export function PdfPreview({ path, version }: { path: ApiPath; version: DocumentVersion }) {
+export function PdfPreview({ path, version }: {
+  path: ApiPath;
+  version: Pick<DocumentVersion, "versionNumber" | "originalFileName">;
+}) {
   const { requestPdf } = useAdminSession();
   const [file, setFile] = useState<FileState>(null);
   const [attempt, setAttempt] = useState(0);

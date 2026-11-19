@@ -70,6 +70,7 @@ export function MatterDetails({ id, created }: { id: number; created: boolean })
         action={data && !editing && (
           <div className="flex flex-wrap gap-2">
             <Link href={`/documents?matterId=${id}`} className="admin-secondary">Documents</Link>
+            <Link href={`/matters/${id}/requests`} className="admin-secondary">Client requests</Link>
             {data.archivedAtUtc ? (
               <button type="button" className="admin-secondary" disabled={changing}
                 onClick={() => void changeArchive("restore")}>{changing ? "Restoring…" : "Restore matter"}</button>

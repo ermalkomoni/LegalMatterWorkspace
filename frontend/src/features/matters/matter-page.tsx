@@ -6,8 +6,14 @@ import { useState } from "react";
 import { BackLink, DetailValue, Feedback, LoadError, PageHeading } from "@/components/workspace-ui";
 import { useAdminSession } from "@/features/auth/admin-session";
 import { useAdminQuery } from "@/features/auth/use-admin-query";
+import { apiPath } from "@/lib/api";
+import type { PagedResult } from "@/lib/pagination";
 import { MatterEditor } from "./matter-editor";
+import { MatterHistory, type MatterActivity } from "./matter-history";
+import { MatterItems, matterCollections, type MatterCollection } from "./matter-items";
 import { formatCalendarDate, matterPriorities, matterStatuses, type Matter } from "./matter-types";
+
+const collections = Object.keys(matterCollections) as MatterCollection[];
 
 export function NewMatter() {
   const router = useRouter();
@@ -24,11 +30,20 @@ export function NewMatter() {
 export function MatterDetails({ id, created }: { id: number; created: boolean }) {
   const { request } = useAdminSession();
   const { data, error, pending, refresh } = useAdminQuery<Matter>(`/matters/${id}`);
+  const [activityPage, setActivityPage] = useState(1);
+  const activity = useAdminQuery<PagedResult<MatterActivity>>(
+    data ? apiPath(`/matters/${id}/activities`, { page: activityPage, pageSize: 20 }) : null,
+  );
   const [editing, setEditing] = useState(false);
   const [confirmingArchive, setConfirmingArchive] = useState(false);
   const [changing, setChanging] = useState(false);
   const [notice, setNotice] = useState(created ? "Matter created." : "");
   const [actionError, setActionError] = useState("");
+
+  function refreshActivity() {
+    setActivityPage(1);
+    activity.refresh();
+  }
 
   async function changeArchive(action: "archive" | "restore") {
     setChanging(true);
@@ -37,6 +52,7 @@ export function MatterDetails({ id, created }: { id: number; created: boolean })
     try {
       const saved = await request<Matter>(`/matters/${id}/${action}`, { method: "POST" });
       refresh(saved);
+      refreshActivity();
       setConfirmingArchive(false);
       setNotice(action === "archive" ? "Matter archived." : "Matter restored.");
     } catch {
@@ -88,15 +104,37 @@ export function MatterDetails({ id, created }: { id: number; created: boolean })
         {data && (editing && !data.archivedAtUtc ? (
           <MatterEditor matter={data} onCancel={() => setEditing(false)} onSaved={(saved) => {
             refresh(saved);
+            refreshActivity();
             setNotice("Matter updated.");
             setEditing(false);
           }} onArchived={(archived) => {
             refresh(archived);
+            refreshActivity();
             setNotice("This matter was archived while you were editing.");
             setEditing(false);
           }} />
         ) : (
-          <MatterSummary matter={data} />
+          <>
+            <MatterSummary matter={data} />
+            <nav aria-label="Matter sections" className="flex flex-wrap gap-x-5 gap-y-3 py-2 text-sm">
+              {collections.map((collection) => (
+                <a key={collection} href={`#${collection}`} className="admin-link">{matterCollections[collection].title}</a>
+              ))}
+              <a href="#history" className="admin-link">Matter history</a>
+            </nav>
+            {collections.map((collection) => (
+              <MatterItems key={`${collection}-${!!data.archivedAtUtc}`} matterId={id} collection={collection}
+                readOnly={!!data.archivedAtUtc} onChange={refreshActivity} onConflict={() => {
+                  refresh();
+                  refreshActivity();
+                }} />
+            ))}
+            <MatterHistory data={activity.data} pending={activity.pending} error={activity.error} onRetry={activity.refresh}
+              onPage={(page) => {
+                document.getElementById("history")?.focus();
+                setActivityPage(page);
+              }} />
+          </>
         ))}
       </div>
     </>

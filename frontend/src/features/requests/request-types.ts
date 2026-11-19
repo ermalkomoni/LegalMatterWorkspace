@@ -38,6 +38,7 @@ export type ExternalRequest = {
   startedAtUtc: string | null;
   replacedAtUtc: string | null;
   sourceVersionId: number | null;
+  signingDocumentId: number | null;
   signerKind: "ExternalClient" | "Admin" | null;
   uploadStatus: UploadStatus | null;
   deliveryAttempts: DeliveryAttempt[];

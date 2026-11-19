@@ -27,7 +27,12 @@ export function NewMatter() {
   );
 }
 
-export function MatterDetails({ id, created }: { id: number; created: boolean }) {
+export function MatterDetails({ id, created, fromNotifications, target }: {
+  id: number;
+  created: boolean;
+  fromNotifications: boolean;
+  target?: { collection: "tasks" | "deadlines"; id: number };
+}) {
   const { request } = useAdminSession();
   const { data, error, pending, refresh } = useAdminQuery<Matter>(`/matters/${id}`);
   const [activityPage, setActivityPage] = useState(1);
@@ -64,7 +69,7 @@ export function MatterDetails({ id, created }: { id: number; created: boolean })
 
   return (
     <>
-      <BackLink href="/">Matters</BackLink>
+      {fromNotifications ? <BackLink href="/notifications">Notifications</BackLink> : <BackLink href="/">Matters</BackLink>}
       {data && !editing && <p className="mb-1 text-sm font-semibold text-neutral-600 wrap-anywhere">{data.referenceNumber}</p>}
       <PageHeading title={editing ? "Edit matter" : data?.title ?? "Matter details"}
         action={data && !editing && (
@@ -126,6 +131,7 @@ export function MatterDetails({ id, created }: { id: number; created: boolean })
             </nav>
             {collections.map((collection) => (
               <MatterItems key={`${collection}-${!!data.archivedAtUtc}`} matterId={id} collection={collection}
+                targetId={target?.collection === collection ? target.id : undefined}
                 readOnly={!!data.archivedAtUtc} onChange={refreshActivity} onConflict={() => {
                   refresh();
                   refreshActivity();

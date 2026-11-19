@@ -11,7 +11,9 @@ Open [the local frontend](http://localhost:3000). Sign in with the Admin account
 
 Run `npm run build` to verify a production build. Run `npm start` to serve that build.
 
-Sign-in is at `/login`. The workspace opens to Matters at `/`, with client records at `/clients`. The matter list shows active matters by default. Use the Archive state filter to find and reopen archived matters.
+Sign-in is at `/login`. The workspace opens to Matters at `/`, with client records at `/clients` and pending actions and activity at `/notifications`. The matter list shows active matters by default. Use the Archive state filter to find and reopen archived matters.
+
+See the [assessment handoff](../README.md#assessment-handoff) for sample data, the Mailpit walkthrough, and browser workflow tests.
 
 The browser stores the bearer token and its expiry in session storage for the current tab. Keep protected data requests in client components inside the protected layout so they run only after the session is established. The API enforces Admin authorization.
 

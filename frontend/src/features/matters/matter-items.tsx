@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Feedback, LoadError, Timestamp } from "@/components/workspace-ui";
 import { useAdminSession } from "@/features/auth/admin-session";
 import { useAdminQuery } from "@/features/auth/use-admin-query";
@@ -35,9 +35,10 @@ export type MatterCollection = keyof typeof matterCollections;
 type Interaction = { type: "create" } | { type: "edit" | "delete"; itemId: number };
 type ItemFeedback = { kind: "error" | "status"; message: string; itemId?: number; errors?: FieldErrors };
 
-export function MatterItems({ matterId, collection, readOnly, onChange, onConflict }: {
+export function MatterItems({ matterId, collection, targetId, readOnly, onChange, onConflict }: {
   matterId: number;
   collection: MatterCollection;
+  targetId?: number;
   readOnly: boolean;
   onChange: () => void;
   onConflict: () => void;
@@ -50,6 +51,21 @@ export function MatterItems({ matterId, collection, readOnly, onChange, onConfli
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<ItemFeedback | null>(null);
   const addId = `add-${collection}`;
+  const targetRow = useRef<HTMLLIElement>(null);
+  const targetSection = useRef<HTMLElement>(null);
+  const focusedTarget = useRef<number | undefined>(undefined);
+  const targetMissing = targetId !== undefined && !!data && !data.some((item) => item.id === targetId);
+
+  useEffect(() => {
+    if (targetId === undefined) {
+      focusedTarget.current = undefined;
+      return;
+    }
+    if (pending || !data || focusedTarget.current === targetId) return;
+    const element = targetRow.current ?? targetSection.current;
+    element?.focus();
+    focusedTarget.current = targetId;
+  }, [data, pending, targetId]);
 
   function editId(itemId: number) {
     return `edit-${collection}-${itemId}`;
@@ -114,7 +130,7 @@ export function MatterItems({ matterId, collection, readOnly, onChange, onConfli
   const creating = !readOnly && interaction?.type === "create";
 
   return (
-    <section id={collection} aria-labelledby={`${collection}-heading`} tabIndex={-1} className="admin-panel scroll-mt-4">
+    <section ref={targetSection} id={collection} aria-labelledby={`${collection}-heading`} tabIndex={-1} className="admin-panel scroll-mt-4">
       <div className="space-y-3 p-4 sm:px-6 sm:py-5">
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
           <h2 id={`${collection}-heading`} className="text-xl font-semibold tracking-tight">{title}</h2>
@@ -123,6 +139,7 @@ export function MatterItems({ matterId, collection, readOnly, onChange, onConfli
         </div>
         {pending && <p role="status" className="text-sm text-neutral-600">{data ? "Refreshing" : "Loading"} {title.toLowerCase()}…</p>}
         {error && <LoadError error={error} resource={title.toLowerCase()} onRetry={refresh} compact />}
+        {targetMissing && <Feedback>The {itemName} linked from the notification is no longer available.</Feedback>}
         {data?.length === 0 && !creating && <p className="text-sm text-neutral-600">No {title.toLowerCase()} yet.</p>}
         {feedback && feedback.itemId === undefined && <Feedback kind={feedback.kind}>{feedback.message}</Feedback>}
         {creating && (
@@ -141,7 +158,9 @@ export function MatterItems({ matterId, collection, readOnly, onChange, onConfli
             const itemFeedback = feedback?.itemId === item.id ? feedback : null;
             const transition = "status" in item && (item.status === "Pending" ? "complete" : collection === "tasks" ? "reopen" : null);
             return (
-              <li key={item.id} className="space-y-3 px-4 py-4 sm:px-6">
+              <li key={item.id} ref={targetId === item.id ? targetRow : undefined}
+                tabIndex={targetId === item.id ? -1 : undefined}
+                className={`space-y-3 px-4 py-4 sm:px-6 ${targetId === item.id ? "scroll-mt-4 bg-stone-50" : ""}`}>
                 {itemFeedback && <Feedback kind={itemFeedback.kind}>{itemFeedback.message}</Feedback>}
                 {editing ? (
                   <MatterItemForm fields={fields} itemName={itemName} item={item} saving={busy} errors={itemFeedback?.errors}

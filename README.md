@@ -1,6 +1,6 @@
-# Amanet backend
+# Amanet legal matter workspace
 
-.NET 10 backend for the legal matter workspace assessment. Includes Admin authentication, client records, matter management, tasks, internal notes, deadlines, a private PDF document library, and scoped external requests with synchronous SMTP delivery.
+The Next.js workspace and .NET 10 API cover Admin access, client and matter management, private PDF versioning, client document exchange, typed-name signing, and notifications.
 
 ## Structure
 
@@ -11,6 +11,7 @@
 | Amanet.Infrastructure | EF Core/PostgreSQL, Identity, private PDF storage, authentication and seeding |
 | Amanet.API | Controllers, HTTP configuration and Swagger |
 | Amanet.Tests | Health/Swagger smoke checks |
+| frontend | Next.js Admin and public-link flows, with browser workflow tests |
 
 Controllers inherit `BaseController` for API version `1.0` and `/api/v{version}/[controller]` routes. The default and fallback policies require the Admin role, including for new controllers. Login, health, and the explicitly scoped public-link controller allow anonymous access.
 
@@ -83,6 +84,66 @@ dotnet run --project Amanet.API --no-launch-profile -- --environment Production 
 ```
 
 User secrets are for development only. Remove the seed password after provisioning. Use HTTPS when hosting remotely.
+
+## Assessment handoff
+
+Follow [Run locally](#run-locally) to start PostgreSQL and Mailpit, apply migrations, and provision the `admin@example.test` demo account. Use the password you chose when provisioning it. Keep the API running and open another terminal to start the frontend. Use Node.js 20.9 or later.
+
+```powershell
+cd frontend
+npm ci
+npm run dev -- --port 3000
+```
+
+| Service | Local URL |
+| --- | --- |
+| Frontend sign-in | [http://localhost:3000/login](http://localhost:3000/login) |
+| Public API base used by the browser | `http://localhost:5109/api/v1` |
+| API Swagger UI | [http://localhost:5109/swagger](http://localhost:5109/swagger) |
+| Mailpit inbox | [http://localhost:8025](http://localhost:8025) |
+
+This handoff uses the local API above. For a hosted demo, set `NEXT_PUBLIC_API_BASE_URL` to the deployed HTTPS API base including `/api/v1` before building the frontend. Set the backend's `ExternalLinks:FrontendBaseUrl` to the public frontend URL so CORS and emailed links use the same origin as the browser. See [frontend setup](frontend/README.md) for the local environment file.
+
+### Populate the demo
+
+From the repository root, run the seed script with the API running. Enter the provisioned Admin credentials when prompted.
+
+```powershell
+./scripts/seed-demo.ps1
+```
+
+The script uses the existing login, client, matter, task, and deadline endpoints. Each run creates a fictional client and two matters with unique `DEMO-` references, plus an overdue task and deadline on **Maple Street lease review**. Use the printed lease reference and recipient email in the walkthrough. For an API on a different port or host, pass `-ApiBaseUrl`. Run this against a disposable demo database so you can reset the fixtures between reviews.
+
+### Walk through Mailpit and notifications
+
+1. Sign in as the demo Admin. Open **Notifications → Pending actions** and follow **Overdue task: Review lease checklist** for your seeded matter. Complete the task and return using **Notifications**. Its pending row should disappear. You can check the overdue deadline the same way.
+2. Find **Maple Street lease review** by its printed reference. Open **Client requests → New document request**, enter the seed recipient email, and send the invitation. Check that the latest delivery attempt says **Sent**.
+3. Find the message in Mailpit and open its upload link in a private browser window, keeping the full URL including `#token`. Upload a small PDF containing only fictional information. The public page should show a receipt that the PDF is awaiting review.
+4. In the Admin workspace, open **Notifications**. **Submission awaiting review** should appear in **Pending actions**, and the document response should appear in **Activity**. Follow the pending row to the request, preview the uploaded version, and choose **Accept submission**. Return to **Notifications**. The review row should disappear and the response should remain in activity.
+5. On the accepted submission, choose **View document**. Its **Version history** offers **Sign as Admin** and **Invite external signer**. To check both flows, sign one eligible PDF as Admin and invite a recipient for another eligible PDF. For the invitation, use Mailpit to review the PDF, begin signing, and submit consent and a typed name. Check the signed PDF and its audit on the document.
+
+For the narrow-screen check, repeat sign-in and submission at about 390 pixels wide. Use Tab and Shift+Tab to follow the focus order, Enter to submit forms, and Space to toggle consent when signing. Check that focus is visible and that the forms fit without horizontal scrolling.
+
+### Run the checks
+
+Run `dotnet test Amanet.sln` from the repository root and `npm run build` from `frontend`. For the browser workflow tests, use the same local API and Mailpit setup with a disposable database and private PDF storage directory. Provision an Admin against that database. Stop the frontend dev server before running the default command so Playwright can start its own server on port 3000.
+
+```powershell
+cd frontend
+npx playwright install chromium
+$env:E2E_ADMIN_EMAIL = 'admin@example.test'
+$env:E2E_ADMIN_PASSWORD = Read-Host 'Demo Admin password' -MaskInput
+try { npm run test:e2e } finally { Remove-Item Env:E2E_ADMIN_PASSWORD }
+```
+
+The suite uses unique fictional fixtures. To use different local ports, set `E2E_API_BASE_URL`, `E2E_MAILPIT_URL`, and `E2E_FRONTEND_URL`. To reuse a running frontend, set `E2E_USE_EXISTING_FRONTEND=1`. The frontend's API base and the API's emailed frontend URL must match the test setup.
+
+### Demo limitations
+
+- Signing uses a typed name and explicit consent with one signer per PDF. A second signer needs a separate document. Recipients use expiring scoped links, and workspace access uses provisioned Admin accounts.
+- Mailpit captures messages locally. SMTP delivery is synchronous, and the Admin retries failed attempts manually. The Notifications view refreshes when opened, when you return from an action, or when you refresh it manually.
+- Uploads require readable, unencrypted PDFs up to 20 MiB. Inline previews depend on the browser's PDF viewer, with download available for browsers without it.
+- Demo records use the same APIs as normal work. Matters can be archived, and reset between independent runs uses a disposable database and PDF storage.
 
 ## Authentication
 

@@ -37,7 +37,7 @@ public sealed record ExternalRequestDto(Guid Id, int MatterId, ExternalAction Ac
     DateTimeOffset? CompletedAtUtc, IReadOnlyList<DeliveryAttemptDto> DeliveryAttempts,
     string RecipientName, string Instructions, DocumentRequestStatus? UploadStatus, int? UploadedDocumentId,
     IReadOnlyList<DocumentSubmissionDto> Submissions, int? SourceVersionId, SignerKind? SignerKind,
-    DateTimeOffset? ViewedAtUtc, DateTimeOffset? StartedAtUtc, DateTimeOffset? ReplacedAtUtc);
+    DateTimeOffset? ViewedAtUtc, DateTimeOffset? StartedAtUtc, DateTimeOffset? ReplacedAtUtc, int? SigningDocumentId);
 
 public sealed record DocumentSubmissionDto(int DocumentVersionId, int DocumentId, int VersionNumber,
     string FileName, DateTimeOffset SubmittedAtUtc, SubmissionDecision? Decision,

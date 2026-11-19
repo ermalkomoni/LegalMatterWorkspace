@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { LoadError } from "@/components/workspace-ui";
 import { useAdminSession } from "@/features/auth/admin-session";
 import type { ApiPath } from "@/lib/api";
@@ -6,9 +6,10 @@ import type { DocumentVersion } from "./document-types";
 
 type FileState = { url: string } | { error: unknown } | null;
 
-export function PdfPreview({ path, version }: {
+export function PdfPreview({ path, version, children }: {
   path: ApiPath;
   version: Pick<DocumentVersion, "versionNumber" | "originalFileName">;
+  children?: ReactNode;
 }) {
   const { requestPdf } = useAdminSession();
   const [file, setFile] = useState<FileState>(null);
@@ -51,6 +52,7 @@ export function PdfPreview({ path, version }: {
           className="block h-[65vh] min-h-72 w-full rounded-lg border border-stone-200 bg-white"
           onError={() => setInlineUnavailable(true)} />
       )}
+      {children}
     </div>
   );
 }

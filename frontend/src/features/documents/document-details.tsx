@@ -2,11 +2,14 @@
 
 import Link from "next/link";
 import { useRef, useState } from "react";
-import { BackLink, DetailValue, Feedback, LoadError, PageHeading, Timestamp } from "@/components/workspace-ui";
+import { BackLink, DetailValue, Feedback, LoadError, PageHeading } from "@/components/workspace-ui";
 import { useAdminQuery } from "@/features/auth/use-admin-query";
 import type { Matter } from "@/features/matters/matter-types";
+import { externalRequestsPath, isActiveSigningRequest, requestListHref, type ExternalRequest } from "@/features/requests/request-types";
 import { DocumentForm } from "./document-form";
-import { documentApiPath, documentStatus, type DocumentVersion, type PdfDocument } from "./document-types";
+import { documentApiPath, documentStatus, isSignableVersion, type DocumentVersion, type PdfDocument } from "./document-types";
+import { SignatureAudit } from "./signature-audit";
+import { signatureApiPath, type Signature } from "./signing-types";
 import { VersionHistory } from "./version-history";
 
 export function DocumentDetails({ matterId, documentId, fromMatter, uploaded }: {
@@ -19,14 +22,18 @@ export function DocumentDetails({ matterId, documentId, fromMatter, uploaded }: 
   const record = useAdminQuery<PdfDocument>(path);
   const matter = useAdminQuery<Matter>(record.data ? `/matters/${matterId}` : null);
   const history = useAdminQuery<DocumentVersion[]>(record.data ? `${path}/versions` : null);
-  const [mode, setMode] = useState<"metadata" | "version" | null>(null);
+  const [mode, setMode] = useState<"metadata" | "version" | number | null>(null);
   const [notice, setNotice] = useState(uploaded ? "PDF uploaded as version 1." : "");
   const editButton = useRef<HTMLButtonElement>(null);
   const versionButton = useRef<HTMLButtonElement>(null);
   const document = record.data;
   const archived = !!matter.data?.archivedAtUtc;
-  const canEdit = !!matter.data && !archived && !document?.signedAtUtc;
-  const canUpload = canEdit && document?.classification === "Standard";
+  const canEdit = !!document && !!matter.data && !archived && !document.signedAtUtc;
+  const requests = useAdminQuery<ExternalRequest[]>(canEdit && document.classification !== "ReviewPending" ? externalRequestsPath(matterId) : null);
+  const signature = useAdminQuery<Signature>(document?.signedAtUtc ? signatureApiPath(matterId, documentId) : null);
+  const activeInvitation = requests.data?.find((request) => isActiveSigningRequest(request) &&
+    history.data?.some((version) => version.id === request.sourceVersionId));
+  const canUpload = canEdit && !activeInvitation && document.classification === "Standard";
   const status = document ? documentStatus(document) : null;
 
   function closeForm() {
@@ -39,6 +46,16 @@ export function DocumentDetails({ matterId, documentId, fromMatter, uploaded }: 
     record.refresh();
     matter.refresh();
     history.refresh();
+    requests.refresh();
+  }
+
+  function showSignature(saved: Signature) {
+    if (!document) return;
+    setMode(null);
+    setNotice(`PDF signed as version ${saved.finalVersionNumber}.`);
+    record.refresh({ ...document, latestVersionNumber: saved.finalVersionNumber, signedAtUtc: saved.signedAtUtc });
+    history.refresh();
+    requestAnimationFrame(() => globalThis.document.getElementById("document-signature-heading")?.focus());
   }
 
   return (
@@ -68,8 +85,10 @@ export function DocumentDetails({ matterId, documentId, fromMatter, uploaded }: 
               <DetailValue label="Matter"><Link href={`/matters/${matterId}`} className="admin-link">{document.matterReference}</Link></DetailValue>
               <DetailValue label="Category">{document.category ?? "No category"}</DetailValue>
               <DetailValue label="Latest version">{document.latestVersionNumber}</DetailValue>
-              {status && <DetailValue label="Status">{status}{document.signedAtUtc && <> · <Timestamp value={document.signedAtUtc} /></>}</DetailValue>}
+              {status && <DetailValue label="Status">{status}</DetailValue>}
             </dl>
+            {document.signedAtUtc && <SignatureAudit document={document} signature={signature.data} pending={signature.pending}
+              error={signature.error} onRetry={signature.refresh} />}
             {mode === "metadata" && canEdit && (
               <DocumentForm mode="metadata" document={document} onCancel={closeForm} onConflict={refreshDetails}
                 onSaved={(saved) => {
@@ -87,7 +106,25 @@ export function DocumentDetails({ matterId, documentId, fromMatter, uploaded }: 
                   closeForm();
                 }} />
             )}
-            <VersionHistory document={document} versions={history.data} pending={history.pending} error={history.error} onRetry={history.refresh} />
+            {requests.pending && !requests.data && (
+              <p role="status" className="text-sm text-neutral-600">Checking signing availability…</p>
+            )}
+            {requests.error && <LoadError error={requests.error} resource="signing availability" onRetry={requests.refresh} />}
+            {activeInvitation && <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+              <p>An external signing invitation is active.</p>
+              <Link href={`${requestListHref(matterId)}/${activeInvitation.id}`} className="admin-link">View signing invitation</Link>
+            </div>}
+            <VersionHistory document={document} versions={history.data} pending={history.pending} error={history.error} onRetry={history.refresh}
+              signing={{
+                selectedVersionId: typeof mode === "number" && canEdit ? mode : null,
+                canSign: (version) => canEdit && !activeInvitation && !requests.pending && !requests.error &&
+                  !!requests.data && isSignableVersion(document, version, requests.data),
+                canStart: mode === null,
+                onStart: (versionId) => { setNotice(""); setMode(versionId); },
+                onCancel: () => setMode(null),
+                onSigned: showSignature,
+                onRefresh: refreshDetails,
+              }} />
           </>
         )}
       </div>

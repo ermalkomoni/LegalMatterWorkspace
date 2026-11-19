@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { fetchJson } from "@/lib/api";
+import { fetchJson, fetchPdf } from "@/lib/api";
 
 export function useLinkToken() {
   const [link, setLink] = useState<{ token: string | null; revision: number }>();
@@ -21,9 +21,17 @@ export function useLinkToken() {
   return link;
 }
 
-export function requestWithLink<T>(path: `/external/${string}`, token: string, options: RequestInit = {}) {
+function linkOptions(token: string, options: RequestInit = {}): RequestInit {
   const headers = new Headers(options.headers);
   headers.delete("Authorization");
   headers.set("X-Link-Token", token);
-  return fetchJson<T>(path, { ...options, headers, referrerPolicy: "no-referrer" });
+  return { ...options, headers, referrerPolicy: "no-referrer" };
+}
+
+export function requestWithLink<T>(path: `/external/${string}`, token: string, options?: RequestInit) {
+  return fetchJson<T>(path, linkOptions(token, options));
+}
+
+export function pdfWithLink(path: `/external/${string}`, token: string, options?: RequestInit) {
+  return fetchPdf(path, linkOptions(token, options));
 }

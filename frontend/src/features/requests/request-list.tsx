@@ -9,7 +9,9 @@ import { useAdminQuery } from "@/features/auth/use-admin-query";
 import type { Matter } from "@/features/matters/matter-types";
 import { jsonRequest } from "@/lib/api";
 import { RequestForm } from "./request-form";
-import { externalRequestsPath, isUploadRequest, linkStatus, requestListHref, uploadStatusLabels, type ExternalRequest } from "./request-types";
+import {
+  externalRequestsPath, isSigningRequest, isUploadRequest, linkStatus, requestListHref, uploadStatusLabels, type ExternalRequest,
+} from "./request-types";
 
 export function RequestList({ matterId }: { matterId: number }) {
   const router = useRouter();
@@ -20,15 +22,15 @@ export function RequestList({ matterId }: { matterId: number }) {
   const [creating, setCreating] = useState(false);
   const createButton = useRef<HTMLButtonElement>(null);
   const archived = !!matter.data?.archivedAtUtc;
-  const uploads = records.data?.filter(isUploadRequest);
+  const clientRequests = records.data?.filter((item) => isUploadRequest(item) || isSigningRequest(item));
 
   return (
     <>
       <BackLink href={`/matters/${matterId}`}>Matter</BackLink>
       {matter.data && <p className="mb-1 text-sm font-semibold text-neutral-600 wrap-anywhere">{matter.data.referenceNumber} · {matter.data.title}</p>}
-      <PageHeading title="Client document requests" action={matter.data && !archived && (
+      <PageHeading title="Client requests" action={matter.data && !archived && (
         <button ref={createButton} type="button" className="admin-primary" disabled={creating}
-          onClick={() => setCreating(true)}>New request</button>
+          onClick={() => setCreating(true)}>New document request</button>
       )} />
       <div className="space-y-5">
         {matter.pending && !matter.data && <p role="status" className="text-sm text-neutral-600">Loading matter…</p>}
@@ -43,19 +45,22 @@ export function RequestList({ matterId }: { matterId: number }) {
             }}
             onCancel={() => { setCreating(false); requestAnimationFrame(() => createButton.current?.focus()); }} />
         )}
-        {records.pending && <p role="status" className="text-sm text-neutral-600">Loading document requests…</p>}
-        {records.error && <LoadError error={records.error} resource="document requests" onRetry={records.refresh} />}
-        {uploads?.length === 0 && <p className="admin-panel p-5 text-sm text-neutral-700">No client document requests yet.</p>}
-        {!!uploads?.length && (
-          <ul aria-label="Client document requests" className="admin-panel divide-y divide-stone-200">
-            {uploads.map((item) => (
+        {records.pending && <p role="status" className="text-sm text-neutral-600">Loading client requests…</p>}
+        {records.error && <LoadError error={records.error} resource="client requests" onRetry={records.refresh} />}
+        {clientRequests?.length === 0 && <p className="admin-panel p-5 text-sm text-neutral-700">No client requests yet.</p>}
+        {!!clientRequests?.length && (
+          <ul aria-label="Client requests" className="admin-panel divide-y divide-stone-200">
+            {clientRequests.map((item) => (
               <li key={item.id} className="grid gap-2 px-4 py-4 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)] sm:gap-4 sm:px-5">
                 <div className="min-w-0 wrap-anywhere">
                   <Link href={`${requestListHref(matterId)}/${item.id}`} className="admin-link">{item.title}</Link>
-                  <p className="mt-1 text-sm text-neutral-700">{item.recipientName} · {item.recipientEmail}</p>
+                  <p className="mt-1 text-sm text-neutral-700">
+                    {item.recipientName && `${item.recipientName} · `}{item.recipientEmail}
+                  </p>
                 </div>
                 <div className="space-y-1 text-sm">
-                  <p className="font-semibold">{uploadStatusLabels[item.uploadStatus]}</p>
+                  <p className="font-semibold">{item.action === "Sign" ? "Signing" : "Upload"} · {item.action === "Sign"
+                    ? item.progress : uploadStatusLabels[item.uploadStatus]}</p>
                   <p className="text-neutral-600">Latest email · {item.deliveryAttempts[0]?.status ?? "No attempt"}</p>
                 </div>
                 <div className="space-y-1 text-sm text-neutral-600">

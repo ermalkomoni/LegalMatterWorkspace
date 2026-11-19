@@ -69,6 +69,7 @@ export function MatterDetails({ id, created }: { id: number; created: boolean })
       <PageHeading title={editing ? "Edit matter" : data?.title ?? "Matter details"}
         action={data && !editing && (
           <div className="flex flex-wrap gap-2">
+            <Link href={`/documents?matterId=${id}`} className="admin-secondary">Documents</Link>
             {data.archivedAtUtc ? (
               <button type="button" className="admin-secondary" disabled={changing}
                 onClick={() => void changeArchive("restore")}>{changing ? "Restoring…" : "Restore matter"}</button>

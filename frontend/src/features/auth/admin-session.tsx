@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { ApiError, fetchJson, SessionExpiredError, type ApiPath } from "@/lib/api";
+import { ApiError, fetchJson, fetchPdf, SessionExpiredError, type ApiOptions, type ApiPath } from "@/lib/api";
 
 const sessionKey = "amanet.adminSession";
 const expiredNotice = "Your session ended. Sign in again to continue.";
@@ -35,6 +35,7 @@ type AdminSessionContextValue = {
   signOut: () => void;
   retry: () => void;
   request: <T>(path: ApiPath, options?: RequestInit) => Promise<T>;
+  requestPdf: (path: ApiPath, options?: RequestInit) => Promise<Blob>;
 };
 
 const AdminSessionContext = createContext<AdminSessionContextValue | null>(null);
@@ -78,7 +79,9 @@ export function AdminSessionProvider({ children }: { children: ReactNode }) {
     setSession({ status: "signed-out", notice });
   }, []);
 
-  const request = useCallback(async <T,>(path: ApiPath, options?: RequestInit) => {
+  const authorized = useCallback(async <T,>(
+    fetcher: (path: ApiPath, options?: ApiOptions) => Promise<T>, path: ApiPath, options?: RequestInit,
+  ) => {
     const saved = readSavedSession();
     if (!saved || saved.expiresAt <= Date.now()) {
       endSession(expiredNotice);
@@ -86,7 +89,7 @@ export function AdminSessionProvider({ children }: { children: ReactNode }) {
     }
 
     try {
-      return await fetchJson<T>(path, { ...options, adminToken: saved.accessToken });
+      return await fetcher(path, { ...options, adminToken: saved.accessToken });
     } catch (error) {
       if (
         error instanceof SessionExpiredError &&
@@ -97,6 +100,12 @@ export function AdminSessionProvider({ children }: { children: ReactNode }) {
       throw error;
     }
   }, [endSession]);
+  const request = useCallback(<T,>(path: ApiPath, options?: RequestInit) => (
+    authorized(fetchJson<T>, path, options)
+  ), [authorized]);
+  const requestPdf = useCallback((path: ApiPath, options?: RequestInit) => (
+    authorized(fetchPdf, path, options)
+  ), [authorized]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -182,7 +191,7 @@ export function AdminSessionProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AdminSessionContext.Provider value={{ session, signIn, signOut: () => endSession(), retry, request }}>
+    <AdminSessionContext.Provider value={{ session, signIn, signOut: () => endSession(), retry, request, requestPdf }}>
       {children}
     </AdminSessionContext.Provider>
   );

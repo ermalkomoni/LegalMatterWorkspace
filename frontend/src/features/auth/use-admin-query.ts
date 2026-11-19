@@ -18,21 +18,25 @@ export function useAdminQuery<T>(path: ApiPath | null) {
     if (!path) return;
     const controller = new AbortController();
     const { signal } = controller;
-    void request<T>(path, { signal }).then(
-      (data) => {
-        if (!signal.aborted) setResult({ path, revision, data });
-      },
-      (error: unknown) => {
-        if (!signal.aborted) {
-          setResult((previous) => ({
-            path,
-            revision,
-            error: error instanceof Error ? error : new Error("The request failed."),
-            data: previous?.path === path ? previous.data : undefined,
-          }));
-        }
-      },
-    );
+    // Give Strict Mode cleanup a chance to cancel before starting the request.
+    queueMicrotask(() => {
+      if (signal.aborted) return;
+      void request<T>(path, { signal }).then(
+        (data) => {
+          if (!signal.aborted) setResult({ path, revision, data });
+        },
+        (error: unknown) => {
+          if (!signal.aborted) {
+            setResult((previous) => ({
+              path,
+              revision,
+              error: error instanceof Error ? error : new Error("The request failed."),
+              data: previous?.path === path ? previous.data : undefined,
+            }));
+          }
+        },
+      );
+    });
     return () => controller.abort();
   }, [path, request, revision]);
 

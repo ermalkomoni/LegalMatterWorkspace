@@ -1,9 +1,8 @@
 import { useState } from "react";
-import { Feedback, LoadError } from "@/components/workspace-ui";
+import { Feedback, LoadError, Timestamp } from "@/components/workspace-ui";
 import { useAdminSession } from "@/features/auth/admin-session";
 import { useAdminQuery } from "@/features/auth/use-admin-query";
 import { ApiError, jsonRequest, type ApiPath, type FieldErrors } from "@/lib/api";
-import { MatterTimestamp } from "./matter-history";
 import { MatterItemForm, type ItemField } from "./matter-item-form";
 import { formatCalendarDate } from "./matter-types";
 
@@ -198,8 +197,8 @@ function MatterItemDetails({ item }: { item: MatterItem }) {
       <div className="min-w-0 space-y-2">
         <p className="whitespace-pre-wrap wrap-anywhere">{item.text}</p>
         <p className="text-sm text-neutral-600">
-          Added <MatterTimestamp value={item.createdAtUtc} />
-          {item.updatedAtUtc !== item.createdAtUtc && <> · Edited <MatterTimestamp value={item.updatedAtUtc} /></>}
+          Added <Timestamp value={item.createdAtUtc} />
+          {item.updatedAtUtc !== item.createdAtUtc && <> · Edited <Timestamp value={item.updatedAtUtc} /></>}
         </p>
       </div>
     );

@@ -164,7 +164,7 @@ public sealed class AdminSigningController(ISigningService signing) : BaseContro
 public sealed class AdminNotificationsController(IAdminNotificationService notifications) : BaseController
 {
     [HttpGet]
-    public Task<PagedResult<AdminNotificationDto>> List([FromQuery] ListQuery query, CancellationToken cancellationToken)
+    public Task<PagedResult<AdminNotificationDto>> List([FromQuery] NotificationQuery query, CancellationToken cancellationToken)
     {
         return notifications.ListAsync(query, cancellationToken);
     }

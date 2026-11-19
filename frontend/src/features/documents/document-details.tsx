@@ -1,5 +1,6 @@
 "use client";
 
+import { StatusPill } from "@/components/status-pill";
 import Link from "next/link";
 import { useRef, useState } from "react";
 import { BackLink, DetailValue, Feedback, LoadError, PageHeading } from "@/components/workspace-ui";
@@ -85,7 +86,7 @@ export function DocumentDetails({ matterId, documentId, fromMatter, uploaded }: 
               <DetailValue label="Matter"><Link href={`/matters/${matterId}`} className="admin-link">{document.matterReference}</Link></DetailValue>
               <DetailValue label="Category">{document.category ?? "No category"}</DetailValue>
               <DetailValue label="Latest version">{document.latestVersionNumber}</DetailValue>
-              {status && <DetailValue label="Status">{status}</DetailValue>}
+              {status && <DetailValue label="Status"><StatusPill value={status} /></DetailValue>}
             </dl>
             {document.signedAtUtc && <SignatureAudit document={document} signature={signature.data} pending={signature.pending}
               error={signature.error} onRetry={signature.refresh} />}

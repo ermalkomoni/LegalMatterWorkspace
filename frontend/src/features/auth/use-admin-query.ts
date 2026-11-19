@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { ApiPath } from "@/lib/api";
 import { useAdminSession } from "./admin-session";
 
@@ -43,10 +43,10 @@ export function useAdminQuery<T>(path: ApiPath | null) {
   const current = result?.path === path ? result : undefined;
   const pending = path !== null && current?.revision !== revision;
 
-  function refresh(data?: T) {
+  const refresh = useCallback((data?: T) => {
     if (path && data !== undefined) setResult({ path, revision, data });
     setRevision((value) => value + 1);
-  }
+  }, [path, revision]);
 
   return { data: current?.data, error: pending ? undefined : current?.error, pending, refresh };
 }

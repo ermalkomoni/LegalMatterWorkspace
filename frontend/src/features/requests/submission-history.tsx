@@ -1,3 +1,4 @@
+import { StatusPill } from "@/components/status-pill";
 import Link from "next/link";
 import { useId, useState, type FormEvent, type ReactNode } from "react";
 import { Field, Timestamp, fieldDescription } from "@/components/workspace-ui";
@@ -52,7 +53,7 @@ export function SubmissionHistory({ matterId, submissions, canReview, busy, feed
                     <h3 className="font-semibold">Version {versionNumber} · {fileName}</h3>
                     <p className="text-sm text-neutral-600">Submitted <Timestamp value={submission.submittedAtUtc} /></p>
                     <p className="text-sm text-neutral-700">
-                      <span className="font-medium">{status}</span>
+                      <StatusPill value={status} />
                       {submission.reviewedAtUtc && <> · <Timestamp value={submission.reviewedAtUtc} /></>}
                     </p>
                   </div>

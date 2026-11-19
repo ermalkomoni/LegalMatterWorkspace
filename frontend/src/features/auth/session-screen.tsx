@@ -1,19 +1,18 @@
 "use client";
 
+import { Brand } from "@/components/brand";
 import type { ReactNode } from "react";
 import { useAdminSession } from "./admin-session";
 
 export function SessionScreen({ children }: { children?: ReactNode }) {
   return (
-    <main className="relative isolate grid min-h-dvh place-items-center bg-stone-50 px-5 py-12 sm:px-8">
-      <div className="w-full max-w-sm">
-        <div className="mb-6 flex items-baseline justify-between gap-x-4 gap-y-2">
-          <p className="text-xl font-bold tracking-tight">Amanet</p>
-          <p className="text-sm text-neutral-600">Admin workspace</p>
+    <main className="session-canvas">
+      <div className="session-layout">
+        <div className="session-intro">
+          <Brand />
+          <div className="session-title"><h2>Firm workspace</h2><p>Manage client matters, documents, and signatures.</p></div>
         </div>
-        <div className="rounded-2xl border border-stone-200 bg-white p-6 shadow-sm sm:p-8">
-          {children}
-        </div>
+        <div className="session-form">{children}</div>
       </div>
     </main>
   );

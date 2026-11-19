@@ -27,13 +27,15 @@ test("protects Admin pages and restores the session on reload", async ({ page })
   await expect(page).toHaveURL(/\/login$/);
   await expect(page.getByRole("navigation", { name: "Workspace" })).toBeHidden();
   await signInWithKeyboard(page);
-  await page.getByRole("link", { name: "Notifications", exact: true }).click();
+  await page.getByRole("button", { name: "Notifications", exact: true }).click();
+  await page.getByRole("link", { name: "View all notifications" }).click();
   await expect(page.getByRole("heading", { name: "Notifications", exact: true })).toBeVisible();
 
   const identity = page.waitForResponse((response) => new URL(response.url()).pathname.endsWith("/auth/me"));
   await page.reload();
   expect((await identity).ok()).toBe(true);
   await expect(page.getByRole("heading", { name: "Notifications", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Account", exact: true }).click();
   await page.getByRole("button", { name: "Sign out" }).click();
   await expect(page).toHaveURL(/\/login$/);
   await page.goto("/notifications");
@@ -48,6 +50,18 @@ test("accepts an emailed public PDF upload and clears its pending notification",
   await expectNoHorizontalOverflow(page);
   await signInWithKeyboard(page);
   await expectNoHorizontalOverflow(page);
+
+  await page.getByRole("searchbox", { name: "Search matters" }).fill(uploadInvite.referenceNumber);
+  const result = page.getByRole("row").filter({ hasText: uploadInvite.referenceNumber });
+  await expect(result).toBeVisible();
+  // On phones the matter name spans the card, including when its title wraps.
+  const cell = result.getByRole("cell").first();
+  await expect.poll(() => cell.evaluate((element) => element.clientWidth)).toBeGreaterThan(viewport.width * 0.65);
+  await page.getByRole("button", { name: "Filters", exact: true }).click();
+  await page.getByLabel("Status", { exact: true }).selectOption("Closed");
+  await expect(page.getByText("No matters match these filters.")).toBeVisible();
+  await page.getByLabel("Status", { exact: true }).selectOption("Open");
+  await expect(result).toBeVisible();
 
   const link = await uploadLink(uploadInvite);
   expect(link.origin, "Mailpit link targets the configured frontend").toBe(new URL(page.url()).origin);
@@ -81,17 +95,22 @@ test("accepts an emailed public PDF upload and clears its pending notification",
     await signedOut.close();
   }
 
-  await page.getByRole("link", { name: "Notifications", exact: true }).click();
+  await page.getByRole("button", { name: "Notifications", exact: true }).click();
+  await page.getByRole("link", { name: "View all notifications" }).click();
   const pending = page.getByRole("region", { name: "Pending actions" }).getByRole("link", { name: `Submission awaiting review: ${uploadInvite.title}` });
   const history = page.getByRole("region", { name: "Activity" }).getByRole("link", { name: `PDF submitted for review: ${uploadInvite.title} (version 1).` });
   await expect(pending).toBeVisible();
+  await page.getByRole("button", { name: "Activity", exact: true }).click();
   await expect(history).toBeVisible();
+  await page.getByRole("button", { name: "Pending actions", exact: true }).click();
   await expectNoHorizontalOverflow(page);
   await pending.click();
   await expect(page).toHaveURL(new RegExp(`/matters/${uploadInvite.matterId}/requests/${uploadInvite.id}(?:[?#]|$)`));
   await page.getByRole("button", { name: "Accept submission" }).click();
   await expect(page.getByText("Submission accepted.")).toBeVisible();
   await page.getByRole("main").getByRole("link", { name: "Notifications", exact: true }).click();
-  await expect(history).toBeVisible();
+  await expect(page.getByRole("region", { name: "Pending actions" })).toBeVisible();
   await expect(pending).toBeHidden();
+  await page.getByRole("button", { name: "Activity", exact: true }).click();
+  await expect(history).toBeVisible();
 });

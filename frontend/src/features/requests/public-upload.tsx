@@ -1,10 +1,11 @@
 "use client";
 
+import { StatusPill } from "@/components/status-pill";
 import { useEffect, useState, type FormEvent } from "react";
 import { Feedback, Timestamp } from "@/components/workspace-ui";
 import { PdfFileField, invalidPdfError, pdfSizeError, validatePdfFile } from "@/features/documents/pdf-upload";
 import { ApiError } from "@/lib/api";
-import type { PublicUploadContext } from "./request-types";
+import { uploadStatusLabels, type PublicUploadContext } from "./request-types";
 import { requestWithLink, useLinkToken } from "./use-link-token";
 
 const rateLimitMessage = "Too many requests. Wait a minute and try again.";
@@ -104,7 +105,7 @@ function PublicUpload({ requestId, token }: { requestId: string; token: string }
   return (
     <section className="admin-panel space-y-5 p-5 sm:p-7">
       <div className="space-y-2">
-        <p className="text-sm font-medium text-neutral-600">Document request</p>
+        <p className="text-sm font-medium text-neutral-600">Document request <StatusPill value={uploadStatusLabels[context.uploadStatus]} /></p>
         <h1 className="text-3xl font-semibold tracking-tight wrap-anywhere">{context.title}</h1>
         <p className="text-sm text-neutral-700 wrap-anywhere">Requested from {context.recipientName}</p>
       </div>

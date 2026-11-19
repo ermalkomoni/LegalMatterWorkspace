@@ -23,7 +23,7 @@ public sealed class AdminNotificationService(ApplicationDbContext db) : IAdminNo
         });
     }
 
-    public async Task<PagedResult<AdminNotificationDto>> ListAsync(ListQuery query, CancellationToken cancellationToken)
+    public async Task<PagedResult<AdminNotificationDto>> ListAsync(NotificationQuery query, CancellationToken cancellationToken)
     {
         var now = DateTimeOffset.UtcNow;
         var today = DateOnly.FromDateTime(now.UtcDateTime);
@@ -116,6 +116,9 @@ public sealed class AdminNotificationService(ApplicationDbContext db) : IAdminNo
                 DueDate = (DateOnly?)deadline.Date
             });
         var notifications = history.Concat(requirements).Concat(tasks).Concat(deadlines);
+        if (query.IsActionable is bool actionable)
+            notifications = notifications.Where(notification => notification.IsActionable == actionable);
+
         if (!string.IsNullOrWhiteSpace(query.Search))
         {
             var term = query.Search.Trim().ToLowerInvariant();

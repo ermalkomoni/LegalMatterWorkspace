@@ -1,139 +1,98 @@
 "use client";
 
 import Link from "next/link";
-import { useState, type FormEvent } from "react";
+import { useState } from "react";
 import { Field, LoadError, PageHeading, Pagination } from "@/components/workspace-ui";
+import { Icon } from "@/components/icon";
+import { StatusPill } from "@/components/status-pill";
 import { useAdminQuery } from "@/features/auth/use-admin-query";
 import { ClientPicker } from "@/features/clients/client-picker";
 import type { ClientChoice } from "@/features/clients/client-types";
 import { apiPath } from "@/lib/api";
 import type { PagedResult } from "@/lib/pagination";
-import {
-  archiveStates, formatCalendarDate, matterPriorities, matterStatuses,
-  type ArchiveState, type Matter, type MatterPriority, type MatterStatus,
-} from "./matter-types";
-
-type Filters = {
-  search: string;
-  client: ClientChoice | null;
-  status: MatterStatus | "";
-  priority: MatterPriority | "";
-  archiveState: ArchiveState;
-};
-
-const initialFilters: Filters = { search: "", client: null, status: "", priority: "", archiveState: "Active" };
+import { useListSearch } from "@/lib/use-list-search";
+import { archiveStates, formatCalendarDate, matterPriorities, matterStatuses,
+  type ArchiveState, type Matter, type MatterPriority, type MatterStatus } from "./matter-types";
 
 export function MatterList() {
-  const [draft, setDraft] = useState(initialFilters);
-  const [filters, setFilters] = useState(initialFilters);
-  const [page, setPage] = useState(1);
+  const search = useListSearch();
+  const [client, setClient] = useState<ClientChoice | null>(null);
+  const [status, setStatus] = useState<MatterStatus | "">("");
+  const [priority, setPriority] = useState<MatterPriority | "">("");
+  const [archiveState, setArchiveState] = useState<ArchiveState>("Active");
+  const [expanded, setExpanded] = useState(false);
   const { data, error, pending, refresh } = useAdminQuery<PagedResult<Matter>>(apiPath("/matters", {
-    search: filters.search,
-    clientId: filters.client?.id ?? "",
-    status: filters.status,
-    priority: filters.priority,
-    archiveState: filters.archiveState,
-    page,
+    search: search.search, clientId: client?.id ?? "", status, priority, archiveState, page: search.page,
   }));
-  const narrowed = Boolean(filters.search || filters.client || filters.status || filters.priority || filters.archiveState !== "Active");
-
-  function update<K extends keyof Filters>(key: K, value: Filters[K]) {
-    setDraft((current) => ({ ...current, [key]: value }));
+  const facets = Number(!!client) + Number(!!status) + Number(!!priority);
+  const narrowed = !!(facets || search.draft);
+  function reset() {
+    search.clear();
+    setClient(null);
+    setStatus("");
+    setPriority("");
   }
-
-  function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setPage(1);
-    setFilters({ ...draft, search: draft.search.trim() });
-  }
-
-  function clear() {
-    setDraft(initialFilters);
-    setFilters(initialFilters);
-    setPage(1);
-  }
-
-  return (
-    <>
-      <PageHeading title="Matters" action={<Link href="/matters/new" className="admin-primary">New matter</Link>} />
-      <form onSubmit={submit} className="admin-panel mb-6 grid gap-4 p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-4">
-        <div className="sm:col-span-2 lg:col-span-4">
-          <Field id="matter-search" label="Search matters">
-            <input id="matter-search" type="search" className="admin-input" maxLength={200}
-              placeholder="Reference, title, or client" value={draft.search}
-              onChange={(event) => update("search", event.target.value)} />
-          </Field>
+  return <>
+    <PageHeading title="Matters" description="Manage your firm’s matters, from opening to close."
+      action={<Link href="/matters/new" className="admin-primary"><Icon name="plus" size={16} />New matter</Link>} />
+    <div className="register">
+      <div className="register-toolbar">
+        <div className="segmented" role="group" aria-label="Archive state">
+          {(Object.keys(archiveStates) as ArchiveState[]).map((state) =>
+            <button key={state} aria-pressed={archiveState === state} onClick={() => { setArchiveState(state); search.setPage(1); }}>
+              {archiveStates[state]}
+            </button>)}
         </div>
-        <Field id="filter-client" label="Client">
-          <ClientPicker id="filter-client" value={draft.client} onChange={(client) => update("client", client)}
-            placeholder="All clients" />
-        </Field>
-        <Field id="filter-status" label="Status">
-          <select id="filter-status" className="admin-input" value={draft.status}
-            onChange={(event) => update("status", event.target.value as Filters["status"])}>
-            <option value="">Any status</option>
-            {Object.entries(matterStatuses).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-          </select>
-        </Field>
-        <Field id="filter-priority" label="Priority">
-          <select id="filter-priority" className="admin-input" value={draft.priority}
-            onChange={(event) => update("priority", event.target.value as Filters["priority"])}>
-            <option value="">Any priority</option>
-            {Object.entries(matterPriorities).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-          </select>
-        </Field>
-        <Field id="filter-archive" label="Archive state">
-          <select id="filter-archive" className="admin-input" value={draft.archiveState}
-            onChange={(event) => update("archiveState", event.target.value as ArchiveState)}>
-            {Object.entries(archiveStates).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-          </select>
-        </Field>
-        <div className="flex flex-wrap gap-3 sm:col-span-2 lg:col-span-4">
-          <button type="submit" className="admin-primary">Apply filters</button>
-          <button type="button" className="admin-secondary" onClick={clear}>Clear filters</button>
+        <div className="search-tools">
+          <label className="search-box"><Icon name="search" size={17} /><span className="sr-only">Search matters</span>
+            <input type="search" maxLength={200} placeholder="Search matters…" value={search.draft} onChange={(e) => search.setDraft(e.target.value)} />
+          </label>
+          <button className="admin-secondary" aria-expanded={expanded} aria-controls="matter-filters"
+            onClick={() => setExpanded(!expanded)}><Icon name="filter" size={16} />Filters{facets > 0 && <span className="filter-count">{facets}</span>}</button>
         </div>
-      </form>
-
-      {pending && <p role="status" className="p-4 text-sm text-neutral-600">Loading matters…</p>}
+      </div>
+      <div id="matter-filters" hidden={!expanded} className="filter-fields">
+        <Field id="filter-client" label="Client"><ClientPicker id="filter-client" value={client} placeholder="All clients"
+          onChange={(value) => { setClient(value); search.setPage(1); }} /></Field>
+        <Field id="filter-status" label="Status"><select id="filter-status" className="admin-input" value={status}
+          onChange={(e) => { setStatus(e.target.value as typeof status); search.setPage(1); }}>
+          <option value="">Any status</option>{Object.entries(matterStatuses).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+        </select></Field>
+        <Field id="filter-priority" label="Priority"><select id="filter-priority" className="admin-input" value={priority}
+          onChange={(e) => { setPriority(e.target.value as typeof priority); search.setPage(1); }}>
+          <option value="">Any priority</option>{Object.entries(matterPriorities).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+        </select></Field>
+      </div>
+      <div className="register-caption"><h2>{archiveState === "All" ? "All" : archiveStates[archiveState]} matters
+        {data && <span className="result-count">{data.totalCount}</span>}</h2>
+        {narrowed && <button className="text-action" onClick={reset}>Clear filters</button>}
+      </div>
+      {pending && <p role="status" className="feed-message">Loading matters…</p>}
       {error && <LoadError error={error} resource="matters" onRetry={refresh} />}
-      {data && (
-        <>
-          {data.items.length > 0 ? (
-            <ul className="admin-panel divide-y divide-stone-200">
-              {data.items.map((matter) => <MatterRow key={matter.id} matter={matter} />)}
-            </ul>
-          ) : (
-            <div className="admin-panel p-6">
-              <p role="status" className="font-medium">{narrowed ? "No matters match these filters." : "No active matters to display."}</p>
-            </div>
-          )}
-          <Pagination result={data} onPage={setPage} />
-        </>
-      )}
-    </>
-  );
+      {data && (data.items.length ? <table className="matter-table">
+        <caption className="sr-only">Matter register</caption><thead><tr>
+          {["Matter", "Client", "Status", "Priority", "Key dates"].map((name) => <th key={name} scope="col">{name}</th>)}
+        </tr></thead>
+        <tbody>{data.items.map((matter) => <MatterRow key={matter.id} matter={matter} />)}</tbody>
+      </table> : <div className="empty-state"><span className="item-icon"><Icon name="folder" size={24} /></span>
+        <p role="status">{narrowed ? "No matters match these filters." : `No ${archiveState === "All" ? "" : archiveState.toLowerCase() + " "}matters to display.`}</p>
+        {narrowed && <button className="admin-secondary" onClick={reset}>Show all in this view</button>}
+      </div>)}
+    </div>
+    {data && <Pagination result={data} onPage={search.setPage} />}
+  </>;
 }
 
 function MatterRow({ matter }: { matter: Matter }) {
-  return (
-    <li className="grid gap-4 px-4 py-4 sm:px-5 md:grid-cols-[1.15fr_1fr] md:gap-8">
-      <div className="min-w-0">
-        <p className="text-xs font-semibold tracking-wide text-neutral-600 wrap-anywhere">{matter.referenceNumber}</p>
-        <Link href={`/matters/${matter.id}`} className="admin-link mt-1 inline-block wrap-anywhere">{matter.title}</Link>
-        <p className="mt-1 text-sm text-neutral-700 wrap-anywhere">{matter.primaryClientName}</p>
-        {matter.archivedAtUtc && (
-          <span className="mt-2 inline-block rounded-md bg-stone-100 px-2 py-1 text-xs font-semibold">Archived</span>
-        )}
-      </div>
-      <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-sm sm:grid-cols-4 md:grid-cols-2 lg:grid-cols-4">
-        <div><dt className="text-xs text-neutral-600">Status</dt><dd>{matterStatuses[matter.status]}</dd></div>
-        <div><dt className="text-xs text-neutral-600">Priority</dt><dd>{matterPriorities[matter.priority]}</dd></div>
-        <div><dt className="text-xs text-neutral-600">Opened</dt><dd>{formatCalendarDate(matter.openedDate)}</dd></div>
-        <div>
-          <dt className="text-xs text-neutral-600">Target close</dt>
-          <dd>{matter.targetCloseDate ? formatCalendarDate(matter.targetCloseDate) : "—"}</dd>
-        </div>
-      </dl>
-    </li>
-  );
+  return <tr>
+    <td><div className="matter-name"><span className="item-icon"><Icon name="folder" /></span><div className="min-w-0">
+      <Link className="record-link" href={`/matters/${matter.id}`}>{matter.title}</Link>
+      <small>{matter.referenceNumber}{matter.archivedAtUtc && <> · <StatusPill value="Archived" /></>}</small>
+    </div></div></td>
+    <td data-label="Client">{matter.primaryClientName}</td>
+    <td data-label="Status"><StatusPill value={matterStatuses[matter.status]} /></td>
+    <td data-label="Priority"><StatusPill value={matterPriorities[matter.priority]} /></td>
+    <td data-label="Key dates"><span>Opened {formatCalendarDate(matter.openedDate)}</span>
+      {matter.targetCloseDate && <small>Target {formatCalendarDate(matter.targetCloseDate)}</small>}</td>
+  </tr>;
 }

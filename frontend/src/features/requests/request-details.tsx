@@ -1,5 +1,6 @@
 "use client";
 
+import { StatusPill } from "@/components/status-pill";
 import Link from "next/link";
 import { useState } from "react";
 import { BackLink, DetailValue, Feedback, LoadError, PageHeading, Timestamp } from "@/components/workspace-ui";
@@ -27,11 +28,11 @@ function emailResult(request: ExternalRequest) {
   }
 }
 
-export function RequestDetails({ matterId, requestId, created, fromNotifications }: {
+export function RequestDetails({ matterId, requestId, created, notificationsHref }: {
   matterId: number;
   requestId: string;
   created: boolean;
-  fromNotifications: boolean;
+  notificationsHref: string | null;
 }) {
   const { request } = useAdminSession();
   const path = `${externalRequestsPath(matterId)}/${requestId}` as const;
@@ -73,8 +74,8 @@ export function RequestDetails({ matterId, requestId, created, fromNotifications
 
   return (
     <>
-      <BackLink href={fromNotifications ? "/notifications" : requestListHref(matterId)}>
-        {fromNotifications ? "Notifications" : "Client requests"}
+      <BackLink href={notificationsHref ?? requestListHref(matterId)}>
+        {notificationsHref ? "Notifications" : "Client requests"}
       </BackLink>
       {matter.data && <p className="mb-1 text-sm font-semibold text-neutral-600 wrap-anywhere">{matter.data.referenceNumber} · {matter.data.title}</p>}
       <PageHeading title={detail?.title ?? "Request details"} action={item && (
@@ -106,10 +107,10 @@ export function RequestDetails({ matterId, requestId, created, fromNotifications
             {created && !busy && !feedback && <Feedback>Request created. {emailResult(item)}</Feedback>}
             <dl className="admin-panel grid gap-5 p-4 sm:grid-cols-2 sm:p-5 lg:grid-cols-4">
               <DetailValue label={item.action === "Sign" ? "Signing progress" : "Status"}>
-                {item.action === "Sign" ? item.progress : uploadStatusLabels[item.uploadStatus]}
+                <StatusPill value={item.action === "Sign" ? item.progress : uploadStatusLabels[item.uploadStatus]} />
               </DetailValue>
               <DetailValue label="Recipient">{item.recipientName && `${item.recipientName}\n`}{item.recipientEmail}</DetailValue>
-              <DetailValue label="Link">{availability}</DetailValue>
+              <DetailValue label="Link">{availability && <StatusPill value={availability} />}</DetailValue>
               <DetailValue label="Expiry"><Timestamp value={item.expiresAtUtc} /></DetailValue>
               {item.action === "Sign" && <>
                 {item.viewedAtUtc && <DetailValue label="Viewed at"><Timestamp value={item.viewedAtUtc} /></DetailValue>}

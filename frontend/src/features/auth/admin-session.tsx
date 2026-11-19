@@ -89,7 +89,9 @@ export function AdminSessionProvider({ children }: { children: ReactNode }) {
     }
 
     try {
-      return await fetcher(path, { ...options, adminToken: saved.accessToken });
+      const result = await fetcher(path, { ...options, adminToken: saved.accessToken });
+      if (options?.method && options.method !== "GET") window.dispatchEvent(new Event("amanet:workspace-updated"));
+      return result;
     } catch (error) {
       if (
         error instanceof SessionExpiredError &&

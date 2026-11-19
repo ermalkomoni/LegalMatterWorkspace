@@ -1,5 +1,6 @@
 "use client";
 
+import { StatusPill } from "@/components/status-pill";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
@@ -59,12 +60,12 @@ export function RequestList({ matterId }: { matterId: number }) {
                   </p>
                 </div>
                 <div className="space-y-1 text-sm">
-                  <p className="font-semibold">{item.action === "Sign" ? "Signing" : "Upload"} · {item.action === "Sign"
-                    ? item.progress : uploadStatusLabels[item.uploadStatus]}</p>
-                  <p className="text-neutral-600">Latest email · {item.deliveryAttempts[0]?.status ?? "No attempt"}</p>
+                  <p className="font-semibold">{item.action === "Sign" ? "Signing" : "Upload"} · <StatusPill value={item.action === "Sign"
+                    ? item.progress : uploadStatusLabels[item.uploadStatus]} /></p>
+                  <p className="text-neutral-600">Latest email · <StatusPill value={item.deliveryAttempts[0]?.status ?? "No attempt"} /></p>
                 </div>
                 <div className="space-y-1 text-sm text-neutral-600">
-                  <p>Link · {linkStatus(item)}</p>
+                  <p>Link · <StatusPill value={linkStatus(item)} /></p>
                   <p>Expiry <Timestamp value={item.expiresAtUtc} /></p>
                 </div>
               </li>

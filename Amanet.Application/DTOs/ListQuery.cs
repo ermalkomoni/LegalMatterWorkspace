@@ -2,6 +2,11 @@ using System.ComponentModel.DataAnnotations;
 
 namespace Amanet.Application.DTOs;
 
+public sealed class NotificationQuery : ListQuery
+{
+    public bool? IsActionable { get; init; }
+}
+
 public class ListQuery
 {
     [Range(1, int.MaxValue)]

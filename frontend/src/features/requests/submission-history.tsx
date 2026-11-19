@@ -1,6 +1,7 @@
+import Link from "next/link";
 import { useId, useState, type FormEvent, type ReactNode } from "react";
 import { Field, Timestamp, fieldDescription } from "@/components/workspace-ui";
-import { documentApiPath } from "@/features/documents/document-types";
+import { documentApiPath, documentHref } from "@/features/documents/document-types";
 import { PdfPreview } from "@/features/documents/pdf-preview";
 import type { DocumentSubmission, SubmissionDecision } from "./request-types";
 
@@ -55,9 +56,12 @@ export function SubmissionHistory({ matterId, submissions, canReview, busy, feed
                       {submission.reviewedAtUtc && <> · <Timestamp value={submission.reviewedAtUtc} /></>}
                     </p>
                   </div>
-                  <button type="button" className="admin-secondary" aria-expanded={open} aria-controls={`submission-preview-${documentVersionId}`}
-                    aria-label={`${open ? "Close preview for" : "View PDF for"} version ${versionNumber}`}
-                    onClick={() => setPreview(open ? null : documentVersionId)}>{open ? "Close preview" : "View PDF"}</button>
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" className="admin-secondary" aria-expanded={open} aria-controls={`submission-preview-${documentVersionId}`}
+                      aria-label={`${open ? "Close preview for" : "View PDF for"} version ${versionNumber}`}
+                      onClick={() => setPreview(open ? null : documentVersionId)}>{open ? "Close preview" : "View PDF"}</button>
+                    {submission.decision === "Accepted" && <Link href={documentHref(matterId, documentId, true)} className="admin-secondary">View document</Link>}
+                  </div>
                 </div>
                 {submission.correctionExplanation && (
                   <p className="whitespace-pre-wrap rounded-lg bg-stone-50 p-3 text-sm text-neutral-800 wrap-anywhere">{submission.correctionExplanation}</p>

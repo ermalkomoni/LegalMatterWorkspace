@@ -301,7 +301,7 @@ public sealed class ExternalRequestService(ApplicationDbContext db, IEmailSender
                     submission.DocumentVersion.VersionNumber, submission.DocumentVersion.OriginalFileName,
                     submission.DocumentVersion.UploadedAtUtc, submission.Decision, submission.CorrectionExplanation,
                     submission.ReviewerId, submission.ReviewedAtUtc)).ToArray(), request.DocumentVersionId,
-            request.SignerKind, request.ViewedAtUtc, request.StartedAtUtc, request.ReplacedAtUtc);
+            request.SignerKind, request.ViewedAtUtc, request.StartedAtUtc, request.ReplacedAtUtc, request.SigningDocumentId);
 
     private static bool CanUpload(ExternalRequest request) => request.UploadStatus is
         DocumentRequestStatus.AwaitingUpload or DocumentRequestStatus.CorrectionsRequested;

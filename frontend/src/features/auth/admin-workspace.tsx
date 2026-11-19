@@ -38,11 +38,12 @@ export function AdminWorkspace({ children }: { children: ReactNode }) {
             </button>
           </div>
         </div>
-        <nav aria-label="Workspace" className="mx-auto flex max-w-6xl gap-6 px-5 sm:px-8">
+        <nav aria-label="Workspace" className="mx-auto flex max-w-6xl flex-wrap gap-x-3 px-5 sm:gap-x-6 sm:px-8">
           {[
             { label: "Matters", href: "/", active: pathname === "/" || pathname.startsWith("/matters") },
             { label: "Clients", href: "/clients", active: pathname.startsWith("/clients") },
             { label: "Documents", href: "/documents", active: pathname.startsWith("/documents") },
+            { label: "Notifications", href: "/notifications", active: pathname === "/notifications" },
           ].map(({ label, href, active }) => (
             <Link key={href} href={href} aria-current={pathname === href ? "page" : active ? "location" : undefined}
               className={`border-b-2 px-1 py-3 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-700 ${active

@@ -3,6 +3,12 @@ import type { ReactNode } from "react";
 import { ApiError } from "@/lib/api";
 import type { PagedResult } from "@/lib/pagination";
 
+const timestampFormatter = new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" });
+
+export function Timestamp({ value }: { value: string }) {
+  return <time dateTime={value}>{timestampFormatter.format(new Date(value))}</time>;
+}
+
 export function PageHeading({ title, action }: { title: string; action?: ReactNode }) {
   return (
     <div className="mb-6 flex flex-wrap items-center justify-between gap-4 sm:mb-8">

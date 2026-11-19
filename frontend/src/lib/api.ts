@@ -38,14 +38,15 @@ export class SessionExpiredError extends ApiError {
   }
 }
 
-type ApiOptions = RequestInit & { adminToken?: string };
+export type ApiOptions = RequestInit & { adminToken?: string };
 
-export async function fetchJson<T>(
+async function fetchApi(
   path: ApiPath,
+  accept: string,
   { adminToken, ...options }: ApiOptions = {},
-): Promise<T> {
+): Promise<Response> {
   const headers = new Headers(options.headers);
-  headers.set("Accept", "application/json");
+  headers.set("Accept", accept);
   if (adminToken) {
     headers.set("Authorization", `Bearer ${adminToken}`);
   }
@@ -79,7 +80,18 @@ export async function fetchJson<T>(
     throw new ApiError(response.status, fieldErrors);
   }
 
-  if (response.status === 204) return undefined as T;
+  return response;
+}
 
+export async function fetchJson<T>(path: ApiPath, options?: ApiOptions): Promise<T> {
+  const response = await fetchApi(path, "application/json", options);
+  if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
+}
+
+export async function fetchPdf(path: ApiPath, options?: ApiOptions): Promise<Blob> {
+  const response = await fetchApi(path, "application/pdf", options);
+  const blob = await response.blob();
+  if (blob.type !== "application/pdf" || !blob.size) throw new Error("The response did not contain a PDF.");
+  return blob;
 }

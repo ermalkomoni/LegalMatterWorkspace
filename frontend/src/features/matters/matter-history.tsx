@@ -1,13 +1,7 @@
-import { LoadError, Pagination } from "@/components/workspace-ui";
+import { LoadError, Pagination, Timestamp } from "@/components/workspace-ui";
 import type { PagedResult } from "@/lib/pagination";
 
 export type MatterActivity = { id: number; description: string; occurredAtUtc: string };
-
-const timestampFormatter = new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" });
-
-export function MatterTimestamp({ value }: { value: string }) {
-  return <time dateTime={value}>{timestampFormatter.format(new Date(value))}</time>;
-}
 
 export function MatterHistory({ data, pending, error, onRetry, onPage }: {
   data?: PagedResult<MatterActivity>;
@@ -29,7 +23,7 @@ export function MatterHistory({ data, pending, error, onRetry, onPage }: {
           {data.items.map((activity) => (
             <li key={activity.id} className="grid gap-1 px-4 py-3 sm:grid-cols-[1fr_auto] sm:gap-5 sm:px-6">
               <p className="text-sm font-medium wrap-anywhere">{activity.description}</p>
-              <p className="text-sm text-neutral-600"><MatterTimestamp value={activity.occurredAtUtc} /></p>
+              <p className="text-sm text-neutral-600"><Timestamp value={activity.occurredAtUtc} /></p>
             </li>
           ))}
         </ol>

@@ -1,8 +1,10 @@
 "use client";
 
+import { StatusPill } from "@/components/status-pill";
+
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { BackLink, DetailValue, Feedback, LoadError, PageHeading } from "@/components/workspace-ui";
 import { useAdminSession } from "@/features/auth/admin-session";
 import { useAdminQuery } from "@/features/auth/use-admin-query";
@@ -27,14 +29,26 @@ export function NewMatter() {
   );
 }
 
-export function MatterDetails({ id, created, fromNotifications, target }: {
+export function MatterDetails({ id, created, notificationsHref, target }: {
   id: number;
   created: boolean;
-  fromNotifications: boolean;
+  notificationsHref: string | null;
   target?: { collection: "tasks" | "deadlines"; id: number };
 }) {
   const { request } = useAdminSession();
   const { data, error, pending, refresh } = useAdminQuery<Matter>(`/matters/${id}`);
+  const initialSection = target?.collection ?? "tasks";
+  const [section, setSection] = useState<MatterCollection | "history">(initialSection);
+  useEffect(() => {
+    function readSection() {
+      const fragment = window.location.hash.slice(1);
+      setSection(fragment === "history" || collections.includes(fragment as MatterCollection)
+        ? fragment as MatterCollection | "history" : initialSection);
+    }
+    readSection();
+    window.addEventListener("hashchange", readSection);
+    return () => window.removeEventListener("hashchange", readSection);
+  }, [initialSection]);
   const [activityPage, setActivityPage] = useState(1);
   const activity = useAdminQuery<PagedResult<MatterActivity>>(
     data ? apiPath(`/matters/${id}/activities`, { page: activityPage, pageSize: 20 }) : null,
@@ -69,7 +83,7 @@ export function MatterDetails({ id, created, fromNotifications, target }: {
 
   return (
     <>
-      {fromNotifications ? <BackLink href="/notifications">Notifications</BackLink> : <BackLink href="/">Matters</BackLink>}
+      {notificationsHref ? <BackLink href={notificationsHref}>Notifications</BackLink> : <BackLink href="/">Matters</BackLink>}
       {data && !editing && <p className="mb-1 text-sm font-semibold text-neutral-600 wrap-anywhere">{data.referenceNumber}</p>}
       <PageHeading title={editing ? "Edit matter" : data?.title ?? "Matter details"}
         action={data && !editing && (
@@ -121,28 +135,36 @@ export function MatterDetails({ id, created, fromNotifications, target }: {
             setEditing(false);
           }} />
         ) : (
-          <>
+          <div className="matter-detail">
             <MatterSummary matter={data} />
-            <nav aria-label="Matter sections" className="flex flex-wrap gap-x-5 gap-y-3 py-2 text-sm">
+            <div className="min-w-0">
+              <nav aria-label="Matter sections" className="section-nav">
+                {collections.map((collection) => (
+                  <a key={collection} href={`#${collection}`} aria-current={section === collection ? "location" : undefined}>
+                    {matterCollections[collection].title}
+                  </a>
+                ))}
+                <a href="#history" aria-current={section === "history" ? "location" : undefined}>Matter history</a>
+              </nav>
               {collections.map((collection) => (
-                <a key={collection} href={`#${collection}`} className="admin-link">{matterCollections[collection].title}</a>
+                <div key={collection} hidden={section !== collection}>
+                  <MatterItems key={String(!!data.archivedAtUtc)} matterId={id} collection={collection}
+                    targetId={target?.collection === collection ? target.id : undefined}
+                    readOnly={!!data.archivedAtUtc} onChange={refreshActivity} onConflict={() => {
+                      refresh();
+                      refreshActivity();
+                    }} />
+                </div>
               ))}
-              <a href="#history" className="admin-link">Matter history</a>
-            </nav>
-            {collections.map((collection) => (
-              <MatterItems key={`${collection}-${!!data.archivedAtUtc}`} matterId={id} collection={collection}
-                targetId={target?.collection === collection ? target.id : undefined}
-                readOnly={!!data.archivedAtUtc} onChange={refreshActivity} onConflict={() => {
-                  refresh();
-                  refreshActivity();
-                }} />
-            ))}
-            <MatterHistory data={activity.data} pending={activity.pending} error={activity.error} onRetry={activity.refresh}
-              onPage={(page) => {
-                document.getElementById("history")?.focus();
-                setActivityPage(page);
-              }} />
-          </>
+              <div hidden={section !== "history"}>
+                <MatterHistory data={activity.data} pending={activity.pending} error={activity.error} onRetry={activity.refresh}
+                  onPage={(page) => {
+                    document.getElementById("history")?.focus();
+                    setActivityPage(page);
+                  }} />
+              </div>
+            </div>
+          </div>
         ))}
       </div>
     </>
@@ -151,18 +173,19 @@ export function MatterDetails({ id, created, fromNotifications, target }: {
 
 function MatterSummary({ matter }: { matter: Matter }) {
   return (
-    <>
+    <aside className="case-summary admin-panel">
+      <h2>Matter overview</h2>
       {matter.archivedAtUtc && <Feedback>Archived on {formatCalendarDate(matter.archivedAtUtc.slice(0, 10))}. This matter is read-only.</Feedback>}
-      <dl className="admin-panel grid gap-6 p-5 sm:grid-cols-2 sm:p-6 lg:grid-cols-3">
+      <dl className="summary-grid">
         <DetailValue label="Primary client">
           <Link href={`/clients/${matter.primaryClientId}`} className="admin-link">{matter.primaryClientName}</Link>
         </DetailValue>
-        <DetailValue label="Status">{matterStatuses[matter.status]}</DetailValue>
-        <DetailValue label="Priority">{matterPriorities[matter.priority]}</DetailValue>
+        <DetailValue label="Status"><StatusPill value={matterStatuses[matter.status]} /></DetailValue>
+        <DetailValue label="Priority"><StatusPill value={matterPriorities[matter.priority]} /></DetailValue>
         <DetailValue label="Opened date">{formatCalendarDate(matter.openedDate)}</DetailValue>
         <DetailValue label="Target close date">{matter.targetCloseDate ? formatCalendarDate(matter.targetCloseDate) : null}</DetailValue>
-        <DetailValue label="Description" className="sm:col-span-2 lg:col-span-3">{matter.description}</DetailValue>
+        <DetailValue label="Description" className="summary-description">{matter.description}</DetailValue>
       </dl>
-    </>
+    </aside>
   );
 }

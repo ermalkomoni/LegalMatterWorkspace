@@ -1,3 +1,4 @@
+import { StatusPill } from "@/components/status-pill";
 import { useEffect, useRef, useState } from "react";
 import { Feedback, LoadError, Timestamp } from "@/components/workspace-ui";
 import { useAdminSession } from "@/features/auth/admin-session";
@@ -225,12 +226,11 @@ function MatterItemDetails({ item }: { item: MatterItem }) {
 
   const date = "dueDate" in item ? item.dueDate : item.date;
   const status = item.isOverdue ? "Overdue" : item.status;
-  const statusColor = item.isOverdue ? "bg-red-50 text-red-800" : "bg-stone-100 text-neutral-800";
   return (
     <div className="min-w-0 space-y-2">
       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
         <h3 className="min-w-0 font-semibold wrap-anywhere">{item.title}</h3>
-        <span className={`rounded-md px-2 py-1 text-xs font-semibold ${statusColor}`}>{status}</span>
+        <StatusPill value={status} />
       </div>
       <p className="text-sm text-neutral-600">
         {date ? <>Due <time dateTime={date}>{formatCalendarDate(date)}</time></> : "No due date"}

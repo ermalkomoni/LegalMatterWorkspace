@@ -9,11 +9,14 @@ export function Timestamp({ value }: { value: string }) {
   return <time dateTime={value}>{timestampFormatter.format(new Date(value))}</time>;
 }
 
-export function PageHeading({ title, action }: { title: string; action?: ReactNode }) {
+export function PageHeading({ title, action, description }: { title: string; action?: ReactNode; description?: string }) {
   return (
-    <div className="mb-6 flex flex-wrap items-center justify-between gap-4 sm:mb-8">
-      <h1 className="min-w-0 text-3xl font-semibold tracking-tight wrap-anywhere sm:text-4xl">{title}</h1>
-      {action}
+    <div className={description ? "page-heading section-cover" : "page-heading"}>
+      <div className="min-w-0">
+        <h1>{title}</h1>
+        {description && <p>{description}</p>}
+      </div>
+      {action && <div className="heading-action">{action}</div>}
     </div>
   );
 }

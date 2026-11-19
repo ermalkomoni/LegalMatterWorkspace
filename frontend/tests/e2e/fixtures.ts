@@ -24,7 +24,7 @@ async function createUploadInvite(api: APIRequestContext, matterId: number, suff
   return { id: result.id, title, matterId, recipientEmail };
 }
 
-type UploadInvite = Awaited<ReturnType<typeof createUploadInvite>>;
+type UploadInvite = Awaited<ReturnType<typeof createUploadInvite>> & { referenceNumber: string };
 
 export const test = base.extend<{ uploadInvite: UploadInvite }>({
   async uploadInvite({ playwright }, use) {
@@ -46,15 +46,17 @@ export const test = base.extend<{ uploadInvite: UploadInvite }>({
       const client = await readJson<{ id: number }>(await api.post("clients", {
         data: { name: `Riley Example ${suffix}`, email: recipientEmail },
       }));
+      const referenceNumber = `E2E-${suffix}`;
       const matter = await readJson<{ id: number }>(await api.post("matters", {
         data: {
-          primaryClientId: client.id, referenceNumber: `E2E-${suffix}`, title: `Fictional review ${suffix}`,
+          primaryClientId: client.id, referenceNumber, title: `Fictional review ${suffix}`,
           description: "Temporary browser test matter.", status: "Open", priority: "Normal",
           openedDate: new Date().toISOString().slice(0, 10),
         },
       }));
       matterId = matter.id;
-      await use(await createUploadInvite(api, matterId, suffix, recipientEmail));
+      const invite = await createUploadInvite(api, matterId, suffix, recipientEmail);
+      await use({ ...invite, referenceNumber });
     } finally {
       try {
         if (matterId) await readJson(await api.post(`matters/${matterId}/archive`));

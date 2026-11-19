@@ -1,3 +1,4 @@
+import { StatusPill } from "@/components/status-pill";
 import { useRef, useState, type ReactNode } from "react";
 import { Timestamp } from "@/components/workspace-ui";
 import { templateLabels, type EmailTemplate, type ExternalRequest } from "./request-types";
@@ -60,7 +61,7 @@ export function RequestDelivery({ request, canResend, canRevoke, busy, feedback,
             <li key={attempt.id} className="grid gap-1 px-4 py-3 text-sm sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:gap-4 sm:px-6">
               <div className="font-semibold">{templateLabels[attempt.template]}</div>
               <div className={attempt.status === "Failed" ? "text-red-800" : "text-neutral-700"}>
-                {attempt.status}
+                <StatusPill value={attempt.status} />
                 {attempt.failureCode && <span> · {attempt.failureCode === "SmtpTimeout" ? "SMTP timed out" : "SMTP send failed"}</span>}
               </div>
               <p className="text-neutral-600"><Timestamp value={attempt.finishedAtUtc ?? attempt.startedAtUtc} /></p>

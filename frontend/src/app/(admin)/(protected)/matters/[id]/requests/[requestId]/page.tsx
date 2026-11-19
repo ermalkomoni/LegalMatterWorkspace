@@ -1,3 +1,4 @@
+import { notificationReturnHref } from "@/features/notifications/notification-location";
 import { notFound } from "next/navigation";
 import { RequestDetails } from "@/features/requests/request-details";
 import { isRequestId } from "@/features/requests/request-types";
@@ -7,7 +8,7 @@ export default async function RequestPage({ params, searchParams }: PageProps<"/
   const { id, requestId } = await params;
   const matterId = parseRouteId(id);
   if (matterId === null || !isRequestId(requestId)) notFound();
-  const { created, fromNotifications } = await searchParams;
+  const { created, fromNotifications, notificationPage } = await searchParams;
   return <RequestDetails key={`${matterId}-${requestId}`} matterId={matterId} requestId={requestId}
-    created={created === "1"} fromNotifications={fromNotifications === "1"} />;
+    created={created === "1"} notificationsHref={notificationReturnHref(fromNotifications, notificationPage)} />;
 }

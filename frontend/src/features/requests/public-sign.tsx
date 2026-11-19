@@ -1,5 +1,6 @@
 "use client";
 
+import { StatusPill } from "@/components/status-pill";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Feedback, Field, fieldDescription, Timestamp } from "@/components/workspace-ui";
 import { ApiError, jsonRequest, type FieldErrors } from "@/lib/api";
@@ -184,7 +185,7 @@ function SigningRequest({ path, token, initialContext, source, reload, onUnavail
   return (
     <section className="admin-panel space-y-5 p-5 sm:p-7">
       <div className="space-y-2">
-        <p className="text-sm font-medium text-neutral-600">Signature request</p>
+        <p className="text-sm font-medium text-neutral-600">Signature request <StatusPill value={context.progress} /></p>
         <h1 className="text-3xl font-semibold tracking-tight wrap-anywhere">{context.title}</h1>
         {context.recipientName && <p className="text-sm text-neutral-700 wrap-anywhere">Requested from {context.recipientName}</p>}
       </div>

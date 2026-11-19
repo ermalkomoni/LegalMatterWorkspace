@@ -1,9 +1,12 @@
 "use client";
 
+import { StatusPill } from "@/components/status-pill";
+import { useListSearch } from "@/lib/use-list-search";
+import { Icon } from "@/components/icon";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useRef, useState, type FormEvent } from "react";
-import { BackLink, Feedback, Field, LoadError, PageHeading, Pagination, Timestamp } from "@/components/workspace-ui";
+import { useRef, useState } from "react";
+import { BackLink, Feedback, LoadError, PageHeading, Pagination, Timestamp } from "@/components/workspace-ui";
 import { useAdminQuery } from "@/features/auth/use-admin-query";
 import type { Matter } from "@/features/matters/matter-types";
 import { apiPath } from "@/lib/api";
@@ -14,9 +17,7 @@ import { documentHref, documentStatus, type PdfDocument } from "./document-types
 export function DocumentLibrary({ matterId }: { matterId: number | null }) {
   const router = useRouter();
   const scope = useAdminQuery<Matter>(matterId ? `/matters/${matterId}` : null);
-  const [draft, setDraft] = useState("");
-  const [search, setSearch] = useState("");
-  const [page, setPage] = useState(1);
+  const { draft, setDraft, search, page, setPage, clear } = useListSearch();
   const [uploading, setUploading] = useState(false);
   const uploadButton = useRef<HTMLButtonElement>(null);
   const { data, error, pending, refresh } = useAdminQuery<PagedResult<PdfDocument>>(
@@ -25,23 +26,11 @@ export function DocumentLibrary({ matterId }: { matterId: number | null }) {
   const matter = scope.data;
   const readOnly = !!matter?.archivedAtUtc;
 
-  function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setPage(1);
-    setSearch(draft.trim());
-  }
-
-  function clearSearch() {
-    setDraft("");
-    setSearch("");
-    setPage(1);
-  }
-
   return (
     <>
       {matterId && <BackLink href={`/matters/${matterId}`}>Matter</BackLink>}
       {matter && <p className="mb-1 text-sm font-semibold text-neutral-600 wrap-anywhere">{matter.referenceNumber} · {matter.title}</p>}
-      <PageHeading title={matterId ? "Matter documents" : "PDF library"} action={matter && !readOnly && (
+      <PageHeading title={matterId ? "Matter documents" : "PDF library"} description={matterId ? undefined : "Find PDFs across matters and review their latest versions."} action={matter && !readOnly && (
         <button ref={uploadButton} type="button" className="admin-primary" disabled={uploading}
           onClick={() => setUploading(true)}>Upload PDF</button>
       )} />
@@ -61,16 +50,13 @@ export function DocumentLibrary({ matterId }: { matterId: number | null }) {
           }} />
         )}
         {(!matterId || matter) && (
-          <form onSubmit={submit} className="admin-panel flex flex-wrap items-end gap-3 p-4 sm:p-5">
-            <div className="min-w-0 flex-1 basis-64">
-              <Field id="document-search" label="Search documents">
-                <input id="document-search" type="search" className="admin-input" maxLength={200}
-                  value={draft} onChange={(event) => setDraft(event.target.value)} />
-              </Field>
-            </div>
-            <button type="submit" className="admin-secondary">Search</button>
-            <button type="button" className="admin-secondary" onClick={clearSearch}>Clear search</button>
-          </form>
+          <div className="directory-tools">
+            <label className="search-box"><Icon name="search" size={17} /><span className="sr-only">Search documents</span>
+              <input type="search" maxLength={200} value={draft} placeholder="Search documents…" onChange={(e) => setDraft(e.target.value)} />
+            </label>
+            {draft && <button type="button" className="text-action" onClick={clear}>Clear search</button>}
+            {data && <span className="directory-count">{data.totalCount} {data.totalCount === 1 ? "document" : "documents"}</span>}
+          </div>
         )}
 
         {pending && <p role="status" className="text-sm text-neutral-600">{data ? "Refreshing documents…" : "Loading documents…"}</p>}
@@ -86,9 +72,9 @@ export function DocumentLibrary({ matterId }: { matterId: number | null }) {
                       ? "sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]"
                       : "sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)]"}`}>
                       <div className="min-w-0 space-y-1 wrap-anywhere">
-                        <Link className="admin-link" href={documentHref(item.matterId, item.id, !!matterId)}>{item.title}</Link>
+                        <Link className="admin-link inline-flex items-center gap-2" href={documentHref(item.matterId, item.id, !!matterId)}><Icon name="file" />{item.title}</Link>
                         {item.category && <p className="text-sm text-neutral-600">{item.category}</p>}
-                        {status && <p className="text-sm font-medium text-neutral-700">{status}</p>}
+                        {status && <div><StatusPill value={status} /></div>}
                       </div>
                       {!matterId && <p className="min-w-0 text-sm text-neutral-700 wrap-anywhere">
                         Matter <Link className="admin-link" href={`/matters/${item.matterId}`}>{item.matterReference}</Link>

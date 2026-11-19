@@ -101,7 +101,7 @@ public interface IAdminNotificationService
     // Adds to the current unit of work; the workflow owns the save/transaction.
     void RecordSubmission(ExternalRequest request, DocumentVersion version);
     void RecordSigning(ExternalRequest request, DocumentVersion version, string message);
-    Task<PagedResult<AdminNotificationDto>> ListAsync(ListQuery query, CancellationToken cancellationToken);
+    Task<PagedResult<AdminNotificationDto>> ListAsync(NotificationQuery query, CancellationToken cancellationToken);
 }
 
 public interface IEmailSender

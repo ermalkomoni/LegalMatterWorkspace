@@ -1,7 +1,8 @@
 "use client";
 
+import { useListSearch } from "@/lib/use-list-search";
+import { Icon } from "@/components/icon";
 import Link from "next/link";
-import { useState, type FormEvent } from "react";
 import { LoadError, PageHeading, Pagination } from "@/components/workspace-ui";
 import { useAdminQuery } from "@/features/auth/use-admin-query";
 import { apiPath } from "@/lib/api";
@@ -9,37 +10,21 @@ import type { PagedResult } from "@/lib/pagination";
 import type { Client } from "./client-types";
 
 export function ClientList() {
-  const [draft, setDraft] = useState("");
-  const [search, setSearch] = useState("");
-  const [page, setPage] = useState(1);
+  const { draft, setDraft, search, page, setPage, clear } = useListSearch();
   const { data, error, pending, refresh } = useAdminQuery<PagedResult<Client>>(
     apiPath("/clients", { search, page }),
   );
 
-  function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setPage(1);
-    setSearch(draft.trim());
-  }
-
-  function clear() {
-    setDraft("");
-    setSearch("");
-    setPage(1);
-  }
-
   return (
     <>
-      <PageHeading title="Clients" action={<Link className="admin-primary" href="/clients/new">New client</Link>} />
-      <form onSubmit={submit} className="admin-panel mb-6 flex flex-wrap items-end gap-3 p-4 sm:p-5">
-        <div className="min-w-0 flex-1 basis-56">
-          <label htmlFor="client-search" className="block text-sm font-medium">Search clients</label>
-          <input id="client-search" type="search" className="admin-input" maxLength={200}
-            value={draft} onChange={(event) => setDraft(event.target.value)} />
-        </div>
-        <button type="submit" className="admin-secondary">Search</button>
-        <button type="button" className="admin-secondary" onClick={clear}>Clear search</button>
-      </form>
+      <PageHeading title="Clients" description="Find a client and manage their contact details." action={<Link className="admin-primary" href="/clients/new"><Icon name="plus" size={16} />New client</Link>} />
+      <div className="directory-tools">
+        <label className="search-box"><Icon name="search" size={17} /><span className="sr-only">Search clients</span>
+          <input type="search" maxLength={200} value={draft} placeholder="Search clients…" onChange={(e) => setDraft(e.target.value)} />
+        </label>
+        {draft && <button type="button" className="text-action" onClick={clear}>Clear search</button>}
+        {data && <span className="directory-count">{data.totalCount} {data.totalCount === 1 ? "client" : "clients"}</span>}
+      </div>
 
       {pending && <p role="status" className="p-4 text-sm text-neutral-600">Loading clients…</p>}
       {error && <LoadError error={error} resource="clients" onRetry={refresh} />}
@@ -49,7 +34,7 @@ export function ClientList() {
             <ul className="admin-panel divide-y divide-stone-200">
               {data.items.map((client) => (
                 <li key={client.id} className="grid gap-1 px-4 py-4 sm:grid-cols-[1.2fr_1.2fr_0.75fr] sm:gap-5 sm:px-5">
-                  <div className="min-w-0 wrap-anywhere">
+                  <div className="flex min-w-0 items-center gap-3 wrap-anywhere"><span className="client-initial" aria-hidden="true">{client.name.trim().charAt(0)}</span>
                     <Link href={`/clients/${client.id}`} className="admin-link">{client.name}</Link>
                   </div>
                   <p className="min-w-0 text-sm text-neutral-700 wrap-anywhere">{client.email}</p>

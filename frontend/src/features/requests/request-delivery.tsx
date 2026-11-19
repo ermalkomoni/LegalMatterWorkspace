@@ -14,20 +14,25 @@ export function RequestDelivery({ request, canResend, canRevoke, busy, feedback,
   const [confirming, setConfirming] = useState(false);
   const revokeButton = useRef<HTMLButtonElement>(null);
   const correction = request.uploadStatus === "CorrectionsRequested";
+  const completedSigning = request.action === "Sign" && request.progress === "Signed";
+  const resendTemplate = completedSigning ? "Reminder" : correction ? "Correction" : undefined;
+  const resendLabel = completedSigning ? "Resend signed PDF link" : correction ? "Resend correction" : "Resend invitation";
 
   return (
     <section className="admin-panel" aria-labelledby="delivery-heading">
       <div className="space-y-3 p-4 sm:px-6 sm:py-5">
         <h2 id="delivery-heading" className="text-xl font-semibold tracking-tight">Email delivery</h2>
         {feedback}
-        {canResend && <p className="text-sm text-neutral-600">Resending or sending a reminder issues a new link and invalidates the previous one.</p>}
+        {canResend && <p className="text-sm text-neutral-600">Sending another email issues a new link and invalidates the previous one.</p>}
         {(canResend || (canRevoke && !confirming)) && (
           <div className="flex flex-wrap gap-2">
             {canResend && <>
               <button type="button" className="admin-secondary" disabled={busy || confirming}
-                onClick={() => onResend(correction ? "Correction" : undefined)}>{correction ? "Resend correction" : "Resend invitation"}</button>
-              <button type="button" className="admin-secondary" disabled={busy || confirming}
-                onClick={() => onResend("Reminder")}>Send reminder</button>
+                onClick={() => onResend(resendTemplate)}>{resendLabel}</button>
+              {!completedSigning && (
+                <button type="button" className="admin-secondary" disabled={busy || confirming}
+                  onClick={() => onResend("Reminder")}>Send reminder</button>
+              )}
             </>}
             {canRevoke && !confirming && <button ref={revokeButton} type="button" className="admin-secondary text-red-800" disabled={busy}
               onClick={() => setConfirming(true)}>Revoke link</button>}

@@ -1,3 +1,5 @@
+import type { ExternalRequest } from "@/features/requests/request-types";
+
 export type PdfDocument = {
   id: number;
   matterId: number;
@@ -33,4 +35,12 @@ export function documentStatus(document: PdfDocument) {
   if (document.classification === "ReviewPending") return "Awaiting review";
   if (document.classification === "Accepted") return "Accepted";
   return null;
+}
+
+export function isSignableVersion(document: PdfDocument, version: DocumentVersion, requests: ExternalRequest[]) {
+  if (document.signedAtUtc || version.documentId !== document.id) return false;
+  if (document.classification === "Standard") return version.source === "AdminUpload";
+  return document.classification === "Accepted" && version.source === "ClientUpload" && requests.some((request) =>
+    request.action === "Upload" && request.uploadStatus === "Accepted" && request.submissions.some((submission) =>
+      submission.documentId === document.id && submission.documentVersionId === version.id && submission.decision === "Accepted"));
 }

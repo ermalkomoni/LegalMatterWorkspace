@@ -60,7 +60,7 @@ public sealed record PublicRequestContext(Guid RequestId, ExternalAction Action,
 
 public interface IExternalRequestService
 {
-    // Create/resend commit before SMTP and must be called outside caller-owned database transactions.
+    // Create/resend commit before sending and must be called outside caller-owned database transactions.
     Task<ExternalRequestDto> CreateAsync(int matterId, CreateExternalRequest input, CancellationToken cancellationToken);
     Task<IReadOnlyList<ExternalRequestDto>> ListAsync(int? matterId, DocumentRequestStatus? status, CancellationToken cancellationToken);
     Task<ExternalRequestDto> GetAsync(int matterId, Guid requestId, CancellationToken cancellationToken);
@@ -106,7 +106,7 @@ public interface IAdminNotificationService
 
 public interface IEmailSender
 {
-    // The body is transient. Implementations must never log or persist it or SMTP exception details.
+    // The body is transient. Implementations must never log or persist it or provider exception details.
     Task SendAsync(string recipient, string subject, string textBody, CancellationToken cancellationToken);
 }
 

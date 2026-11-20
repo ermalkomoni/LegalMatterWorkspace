@@ -90,7 +90,7 @@ public sealed class AdminNotification
     public DateTimeOffset CreatedAtUtc { get; set; }
 }
 
-// No subject, body, URL, token, SMTP response, or exception message is persisted here.
+// No subject, body, URL, token, provider response, or exception message is persisted here.
 public sealed class EmailDeliveryAttempt
 {
     public Guid Id { get; set; }

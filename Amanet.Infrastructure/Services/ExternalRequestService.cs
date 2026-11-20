@@ -193,7 +193,7 @@ public sealed class ExternalRequestService(ApplicationDbContext db, IEmailSender
             StartedAtUtc = DateTimeOffset.UtcNow, Status = DeliveryStatus.Pending
         };
         // Reserve the unique document slot, including replacement, in the same transaction as the
-        // invitation. Commit before SMTP; no transaction is held during network delivery.
+        // invitation. Commit before sending so no transaction is held during network delivery.
         await using (var transaction = await db.Database.BeginTransactionAsync(cancellationToken))
         {
             if (request.Action == ExternalAction.Sign)
@@ -246,10 +246,10 @@ public sealed class ExternalRequestService(ApplicationDbContext db, IEmailSender
         }
         catch (Exception exception)
         {
-            // SMTP responses and exception messages can contain the full email and token.
+            // Provider responses and exception messages can contain the full email and token.
             // Persist an allowlisted code only, and never pass the exception to a logger.
             attempt.Status = DeliveryStatus.Failed;
-            attempt.FailureCode = exception is OperationCanceledException ? "SmtpTimeout" : "SmtpDeliveryFailed";
+            attempt.FailureCode = exception is OperationCanceledException ? "EmailTimeout" : "EmailDeliveryFailed";
         }
         attempt.FinishedAtUtc = DateTimeOffset.UtcNow;
         using var saveTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));

@@ -62,7 +62,10 @@ export function RequestDelivery({ request, canResend, canRevoke, busy, feedback,
               <div className="font-semibold">{templateLabels[attempt.template]}</div>
               <div className={attempt.status === "Failed" ? "text-red-800" : "text-neutral-700"}>
                 <StatusPill value={attempt.status} />
-                {attempt.failureCode && <span> · {attempt.failureCode === "SmtpTimeout" ? "SMTP timed out" : "SMTP send failed"}</span>}
+                {attempt.failureCode && (
+                  <span> · {attempt.failureCode === "EmailTimeout" || attempt.failureCode === "SmtpTimeout"
+                    ? "Email send timed out" : "Email send failed"}</span>
+                )}
               </div>
               <p className="text-neutral-600"><Timestamp value={attempt.finishedAtUtc ?? attempt.startedAtUtc} /></p>
             </li>

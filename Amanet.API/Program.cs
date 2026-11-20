@@ -90,20 +90,22 @@ builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 
 var app = builder.Build();
 
-// Schema changes are automatic only when explicitly enabled in Development.
-if (app.Environment.IsDevelopment() && builder.Configuration.GetValue<bool>("Database:MigrateOnStartup"))
+var initializeDemo = builder.Configuration.GetValue<bool>("Demo:InitializeDatabase");
+// Production migrations are opt-in for the assessment's first deploy.
+if (initializeDemo || (app.Environment.IsDevelopment() && builder.Configuration.GetValue<bool>("Database:MigrateOnStartup")))
 {
     await using var scope = app.Services.CreateAsyncScope();
     await scope.ServiceProvider.GetRequiredService<ApplicationDbContext>().Database.MigrateAsync();
 }
 
-// One-shot provisioning: never runs during ordinary startup and never changes existing passwords.
-if (seedAdmin)
+if (seedAdmin || initializeDemo)
 {
     await using var scope = app.Services.CreateAsyncScope();
     await scope.ServiceProvider.GetRequiredService<AdminSeeder>().SeedAsync();
-    return;
 }
+
+if (seedAdmin)
+    return;
 
 app.UseExceptionHandler();
 app.UseStatusCodePages();
@@ -119,7 +121,7 @@ app.UseRateLimiter();
 app.MapControllers();
 app.MapGet("/health", () => Results.Ok(new { status = "Healthy" }))
     .AllowAnonymous()
-    .WithSummary("Process liveness; does not check PostgreSQL or SMTP readiness.");
+    .WithSummary("Process liveness without PostgreSQL or email readiness checks.");
 app.Run();
 
 public partial class Program;

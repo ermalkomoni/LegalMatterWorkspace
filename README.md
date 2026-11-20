@@ -76,7 +76,7 @@ Development can optionally apply migrations at startup:
 dotnet user-secrets set "Database:MigrateOnStartup" "true" --project Amanet.API
 ```
 
-Other environments always require an explicit migration command. Supply configuration through environment variables (`ConnectionStrings__DefaultConnection`, `Jwt__Issuer`, `Jwt__Audience`, `Jwt__SigningKey`, and the provisioning-only `AdminSeed__Email`/`AdminSeed__Password`), then run:
+For manual provisioning in other environments, supply configuration through environment variables (`ConnectionStrings__DefaultConnection`, `Jwt__Issuer`, `Jwt__Audience`, `Jwt__SigningKey`, and the provisioning-only `AdminSeed__Email`/`AdminSeed__Password`), then run:
 
 ```powershell
 dotnet ef database update --project Amanet.Infrastructure --startup-project Amanet.API -- --environment Production
@@ -150,7 +150,7 @@ The suite uses unique fictional fixtures. To use different local ports, set `E2E
 Use one Free Render Docker web service for the API, one Free Render Node web service for the frontend, and one Free Render Postgres database. Use Resend Free with a sender on a domain you already control. Render's `onrender.com` hostnames serve the app. For zero cost, use a Render Hobby workspace with the payment method left unset. Usage limits can pause the demo or prevent new builds. Free services can take about a minute to wake up after inactivity. PDFs live on the API's ephemeral disk and disappear when it spins down, restarts, or redeploys. Free Postgres expires after 30 days. [Render free-tier limits](https://render.com/docs/free)
 
 1. In Resend, verify an existing sender domain using the supplied DNS records. Create a sending-only API key for that domain and choose a sender such as `demo@your-domain.example`. Keep click tracking disabled so invitation links use their original URLs. [Resend domain setup](https://resend.com/docs/dashboard/domains/introduction)
-2. In Render, create Free Postgres in the same region as the API. In the database's **Networking** settings, replace the default external allowlist with your setup machine's public IP. On the setup machine, run `dotnet tool restore` and follow the Production commands in [Migrate, seed and start](#migrate-seed-and-start). Set `ConnectionStrings__DefaultConnection` to the external connection details in Npgsql format, `Host=<external hostname>;Port=5432;Database=<database>;Username=<user>;Password=<password>;SSL Mode=VerifyFull`. Set the JWT and demo admin values in the same terminal. After migrations and seeding succeed, clear the external allowlist in Render and close the provisioning terminal. [Render Postgres connections](https://render.com/docs/postgresql-creating-connecting)
+2. In Render, create Free Postgres in the same region as the API and leave its external IP allowlist empty. Use the database's internal connection details for the API. [Render Postgres connections](https://render.com/docs/postgresql-creating-connecting)
 3. Create the Free API web service using the repository root and its `Dockerfile`. Set its health check path to `/health` and configure the API environment variables below. The container listens on port `10000`. [Render Docker deployment](https://render.com/docs/docker)
 4. Create the Free Node web service with root directory `frontend`, build command `npm ci && npm run build`, and start command `npm start`. Set `NODE_VERSION=22` and `NEXT_PUBLIC_API_BASE_URL=https://<api-host>.onrender.com/api/v1` before the frontend build. Once you have the frontend URL, set `ExternalLinks__FrontendBaseUrl` in the API environment and redeploy the API. [Render Next.js deployment](https://render.com/docs/deploy-nextjs-app)
 
@@ -165,8 +165,11 @@ Use one Free Render Docker web service for the API, one Free Render Node web ser
 | `Email__Provider` | `Resend` |
 | `Resend__ApiKey` | The sending-only Resend API key |
 | `Resend__FromEmail` | Sender address at the verified domain |
+| `Demo__InitializeDatabase` | `true` for the first API start with the database configured |
+| `AdminSeed__Email` | The demo admin's sign-in email |
+| `AdminSeed__Password` | A new password meeting the requirements in [Configure secrets](#configure-secrets) |
 
-Open the public frontend and sign in as the demo admin. To create fictional fixtures, run `./scripts/seed-demo.ps1 -ApiBaseUrl 'https://<api-host>.onrender.com/api/v1'` from the repository root. Follow the [local walkthrough](#walk-through-mailpit-and-notifications) with a real test inbox in place of Mailpit and its fictional recipient address. Confirm that upload and signing emails arrive, complete both flows with fictional PDFs, and check that resending invalidates the previous link.
+The first API start applies the migrations and creates the demo admin. After signing in successfully, remove `Demo__InitializeDatabase`, `AdminSeed__Email`, and `AdminSeed__Password` from Render and redeploy. To create fictional fixtures, run `./scripts/seed-demo.ps1 -ApiBaseUrl 'https://<api-host>.onrender.com/api/v1'` from the repository root. Follow the [local walkthrough](#walk-through-mailpit-and-notifications) with a real test inbox in place of Mailpit and its fictional recipient address. Confirm that upload and signing emails arrive, complete both flows with fictional PDFs, and check that resending invalidates the previous link.
 
 ## Authentication
 

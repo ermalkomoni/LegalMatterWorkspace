@@ -109,7 +109,7 @@ public sealed class ClientDocumentRequestService(ApplicationDbContext db, IExter
             document.Classification = DocumentClassification.ReviewPending;
             activities.Record(request.Matter, MatterActivityType.CorrectionsRequested,
                 $"Request #{request.Id}: corrections requested for version {submission.DocumentVersion.VersionNumber}.");
-            // The shared sender commits the review, state, activity and new token together BEFORE SMTP.
+            // The shared sender commits the review, state, activity and new token together before sending.
             return await links.ResendAsync(matterId, requestId, EmailTemplate.Correction, cancellationToken);
         }
 
@@ -141,7 +141,7 @@ public sealed class ClientDocumentRequestService(ApplicationDbContext db, IExter
     private void EnsureCanCommit()
     {
         // Reject before tracking workflow changes or writing a file: neither a file promotion nor
-        // an SMTP send can participate in a caller's later database rollback.
+        // an email send can participate in a caller's later database rollback.
         if (db.Database.CurrentTransaction is not null || System.Transactions.Transaction.Current is not null)
             throw new ConflictException("Submit and review documents outside an open database transaction.");
     }

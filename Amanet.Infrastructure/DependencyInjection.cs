@@ -68,8 +68,23 @@ public static class DependencyInjection
         services.AddOptions<ExternalLinkOptions>().Bind(configuration.GetSection("ExternalLinks"))
             .Validate(options => options.IsValid(), "Configure a valid ExternalLinks:FrontendBaseUrl and ExpiryDays.")
             .ValidateOnStart();
-        services.Configure<SmtpOptions>(configuration.GetSection("Smtp"));
-        services.AddScoped<IEmailSender, SmtpEmailSender>();
+        var emailProvider = configuration["Email:Provider"] ?? "Smtp";
+        if (emailProvider.Equals("Smtp", StringComparison.OrdinalIgnoreCase))
+        {
+            services.Configure<SmtpOptions>(configuration.GetSection("Smtp"));
+            services.AddScoped<IEmailSender, SmtpEmailSender>();
+        }
+        else if (emailProvider.Equals("Resend", StringComparison.OrdinalIgnoreCase))
+        {
+            services.Configure<ResendOptions>(configuration.GetSection("Resend"));
+            services.AddHttpClient<IEmailSender, ResendEmailSender>()
+                .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false })
+                .RemoveAllLoggers();
+        }
+        else
+        {
+            throw new InvalidOperationException("Configure Email:Provider as Smtp or Resend.");
+        }
         services.AddScoped<IExternalRequestService, ExternalRequestService>();
         services.AddScoped<IClientDocumentRequestService, ClientDocumentRequestService>();
         services.AddScoped<IAdminNotificationService, AdminNotificationService>();

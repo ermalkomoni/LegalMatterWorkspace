@@ -119,7 +119,7 @@ app.UseRateLimiter();
 app.MapControllers();
 app.MapGet("/health", () => Results.Ok(new { status = "Healthy" }))
     .AllowAnonymous()
-    .WithSummary("Process liveness; does not check PostgreSQL or SMTP readiness.");
+    .WithSummary("Process liveness without PostgreSQL or email readiness checks.");
 app.Run();
 
 public partial class Program;

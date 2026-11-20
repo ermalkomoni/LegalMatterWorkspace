@@ -10,7 +10,7 @@ The Next.js workspace and .NET 10 API cover Admin access, client and matter mana
 | Amanet.Application | DTOs, service contracts, commands, queries and validation |
 | Amanet.Infrastructure | EF Core/PostgreSQL, Identity, private PDF storage, authentication and seeding |
 | Amanet.API | Controllers, HTTP configuration and Swagger |
-| Amanet.Tests | Health/Swagger smoke checks |
+| Amanet.Tests | Health, Swagger, and Resend adapter checks |
 | frontend | Next.js Admin and public-link flows, with browser workflow tests |
 
 Controllers inherit `BaseController` for API version `1.0` and `/api/v{version}/[controller]` routes. The default and fallback policies require the Admin role, including for new controllers. Login, health, and the explicitly scoped public-link controller allow anonymous access.
@@ -102,7 +102,7 @@ npm run dev -- --port 3000
 | API Swagger UI | [http://localhost:5109/swagger](http://localhost:5109/swagger) |
 | Mailpit inbox | [http://localhost:8025](http://localhost:8025) |
 
-This handoff uses the local API above. For a hosted demo, set `NEXT_PUBLIC_API_BASE_URL` to the deployed HTTPS API base including `/api/v1` before building the frontend. Set the backend's `ExternalLinks:FrontendBaseUrl` to the public frontend URL so CORS and emailed links use the same origin as the browser. See [frontend setup](frontend/README.md) for the local environment file.
+See [Deploy the assessment on Render](#deploy-the-assessment-on-render) for the hosted walkthrough and [frontend setup](frontend/README.md) for the local environment file.
 
 ### Populate the demo
 
@@ -141,9 +141,32 @@ The suite uses unique fictional fixtures. To use different local ports, set `E2E
 ### Demo limitations
 
 - Signing uses a typed name and explicit consent with one signer per PDF. A second signer needs a separate document. Recipients use expiring scoped links, and workspace access uses provisioned Admin accounts.
-- Mailpit captures messages locally. SMTP delivery is synchronous, and the Admin retries failed attempts manually. The Notifications view refreshes when opened, when you return from an action, or when you refresh it manually.
+- Mailpit captures messages locally. Email delivery is synchronous, and the Admin retries failed attempts manually. The Notifications view refreshes when opened, when you return from an action, or when you refresh it manually.
 - Uploads require readable, unencrypted PDFs up to 20 MiB. Inline previews depend on the browser's PDF viewer, with download available for browsers without it.
 - Demo records use the same APIs as normal work. Matters can be archived, and reset between independent runs uses a disposable database and PDF storage.
+
+## Deploy the assessment on Render
+
+Use one Free Render Docker web service for the API, one Free Render Node web service for the frontend, and one Free Render Postgres database. Use Resend Free with a sender on a domain you already control. Render's `onrender.com` hostnames serve the app. For zero cost, use a Render Hobby workspace with the payment method left unset. Usage limits can pause the demo or prevent new builds. Free services can take about a minute to wake up after inactivity. PDFs live on the API's ephemeral disk and disappear when it spins down, restarts, or redeploys. Free Postgres expires after 30 days. [Render free-tier limits](https://render.com/docs/free)
+
+1. In Resend, verify an existing sender domain using the supplied DNS records. Create a sending-only API key for that domain and choose a sender such as `demo@your-domain.example`. Keep click tracking disabled so invitation links use their original URLs. [Resend domain setup](https://resend.com/docs/dashboard/domains/introduction)
+2. In Render, create Free Postgres in the same region as the API. In the database's **Networking** settings, replace the default external allowlist with your setup machine's public IP. On the setup machine, run `dotnet tool restore` and follow the Production commands in [Migrate, seed and start](#migrate-seed-and-start). Set `ConnectionStrings__DefaultConnection` to the external connection details in Npgsql format, `Host=<external hostname>;Port=5432;Database=<database>;Username=<user>;Password=<password>;SSL Mode=VerifyFull`. Set the JWT and demo admin values in the same terminal. After migrations and seeding succeed, clear the external allowlist in Render and close the provisioning terminal. [Render Postgres connections](https://render.com/docs/postgresql-creating-connecting)
+3. Create the Free API web service using the repository root and its `Dockerfile`. Set its health check path to `/health` and configure the API environment variables below. The container listens on port `10000`. [Render Docker deployment](https://render.com/docs/docker)
+4. Create the Free Node web service with root directory `frontend`, build command `npm ci && npm run build`, and start command `npm start`. Set `NODE_VERSION=22` and `NEXT_PUBLIC_API_BASE_URL=https://<api-host>.onrender.com/api/v1` before the frontend build. Once you have the frontend URL, set `ExternalLinks__FrontendBaseUrl` in the API environment and redeploy the API. [Render Next.js deployment](https://render.com/docs/deploy-nextjs-app)
+
+| API variable | Value |
+| --- | --- |
+| `ConnectionStrings__DefaultConnection` | `Host=<internal hostname>;Port=5432;Database=<database>;Username=<user>;Password=<password>;SSL Mode=Require` |
+| `Jwt__Issuer` | `amanet-demo-api` |
+| `Jwt__Audience` | `amanet-demo-admin` |
+| `Jwt__SigningKey` | Base64 of at least 32 random bytes, generated as in [Configure secrets](#configure-secrets) |
+| `AllowedHosts` | The API's generated hostname, without `https://` or a path |
+| `ExternalLinks__FrontendBaseUrl` | The frontend's full HTTPS origin |
+| `Email__Provider` | `Resend` |
+| `Resend__ApiKey` | The sending-only Resend API key |
+| `Resend__FromEmail` | Sender address at the verified domain |
+
+Open the public frontend and sign in as the demo admin. To create fictional fixtures, run `./scripts/seed-demo.ps1 -ApiBaseUrl 'https://<api-host>.onrender.com/api/v1'` from the repository root. Follow the [local walkthrough](#walk-through-mailpit-and-notifications) with a real test inbox in place of Mailpit and its fictional recipient address. Confirm that upload and signing emails arrive, complete both flows with fictional PDFs, and check that resending invalidates the previous link.
 
 ## Authentication
 
@@ -262,7 +285,7 @@ All document, matter, and version lookups check nested ownership. Mismatched/mis
 
 ### Private storage and recovery
 
-By default, storage is `private-uploads` under the API content root, outside `wwwroot` and excluded from Git. To use a persistent external directory, set `Documents:StoragePath` through configuration (environment variable `Documents__StoragePath`). Relative paths resolve against the API content root. Storage under the configured web root is rejected. Keep this directory private and mount persistent storage when deploying in a container.
+By default, storage is `private-uploads` under the API content root, outside `wwwroot` and excluded from Git. To use a persistent external directory, set `Documents:StoragePath` through configuration (environment variable `Documents__StoragePath`). Relative paths resolve against the API content root. Storage under the configured web root is rejected.
 
 Supplied filenames are display metadata only. Storage uses generated keys, never overwrites an existing key, and never returns keys or filesystem paths in API responses. Only authorized controllers stream content. Preview/download use `application/pdf`, safe inline/attachment filename headers, SHA-256 ETags, last-modified timestamps, `Cache-Control: no-store`, and range processing.
 
@@ -280,7 +303,7 @@ Lato Regular and Bold are bundled as assembly resources from the [official Googl
 
 Apply the `PrivatePdfLibrary` migration with the migration command in the setup section. Feature 5 adds no tests; automated coverage is deferred until the end of the assessment.
 
-## Scoped external links and SMTP (Feature 6)
+## Scoped external links and email (Feature 6)
 
 This feature supplies shared request/link infrastructure used by document requests and typed-name signing below. A request has one immutable action (`Upload` or `Sign`) and one current link. There are no client accounts, queues, automatic retries, or background workers. Signing completion is owned by the signing service, not a generic link-completion shortcut.
 
@@ -296,7 +319,7 @@ All Admin routes start with `/api/v1/matters/{matterId}/external-requests`:
 
 Create JSON contains `action`, `recipientEmail`, `title`, optional `documentVersionId`, `recipientName`, `instructions`, and optional `expiresAtUtc`. Upload requests require a recipient name and must omit the document version. Signing requests require a signable version from the same matter. `title` and `instructions` are intended for the recipient and appear in public context. Resend takes `{}` for the appropriate original invitation, or `{"template":"Reminder"}` / `{"template":"Correction"}`. Correction emails require an existing `CorrectionsRequested` workflow state; use the version-specific review operation below to request corrections. Resend never changes workflow progress or review decisions.
 
-Tokens contain 256 cryptographically random bits, encoded as 64 lowercase hex characters. Only SHA-256 hashes are saved. Links expire after seven days by default (`ExternalLinks:ExpiryDays`, 1–365); initial creation can specify a future `expiresAtUtc` within one year. Every resend/correction rotates the hash and renews the default expiry, invalidating the previous token even when SMTP fails. Upload requests can be resent only in `AwaitingUpload` or `CorrectionsRequested`, including after expiry/revocation. Unsigned signing requests that expire or are revoked require a new invitation; replacement invalidates the old workflow permanently. Signed client requests can be resent for read-only access to their final PDF, including after expiry/revocation. Delivery attempts never reset workflow progress.
+Tokens contain 256 cryptographically random bits, encoded as 64 lowercase hex characters. Only SHA-256 hashes are saved. Links expire after seven days by default (`ExternalLinks:ExpiryDays`, 1–365); initial creation can specify a future `expiresAtUtc` within one year. Every resend/correction rotates the hash and renews the default expiry, invalidating the previous token even when email delivery fails. Upload requests can be resent only in `AwaitingUpload` or `CorrectionsRequested`, including after expiry/revocation. Unsigned signing requests that expire or are revoked require a new invitation; replacement invalidates the old workflow permanently. Signed client requests can be resent for read-only access to their final PDF, including after expiry/revocation. Delivery attempts never reset workflow progress.
 
 Frontend URLs are generated only for the transient email body:
 
@@ -305,7 +328,7 @@ Frontend URLs are generated only for the transient email body:
 {FrontendBaseUrl}/external/sign/{requestId}#token=<token>
 ```
 
-The frontend must read the fragment and send its token in `X-Link-Token` on each API call. Do not put it in an API query string, local analytics, logs or error reports. The backend never returns the token or full URL in Admin DTOs, activity or delivery-attempt records. There is no frontend in this repository yet.
+The frontend reads the fragment and sends its token in `X-Link-Token` on each API call. Do not put it in an API query string, local analytics, logs or error reports. The backend never returns the token or full URL in Admin DTOs, activity or delivery-attempt records.
 
 | Public endpoint | Purpose |
 | --- | --- |
@@ -317,9 +340,9 @@ All public operations require the matching request, action and header token, an 
 
 Workflow services compose `IExternalRequestService.ValidateAsync` for **every** public operation. It reads a fresh, untracked snapshot; cached EF entities never authorize an expired, revoked, rotated, replaced or archived link. Public signing links must own their document's unique signing slot and must target an external client. The signing service owns generation/finalization and supports valid repeat submissions; document requests finish through acceptance of a specific submission. `IDocumentService.EnsureSignableAsync` permits only Admin-uploaded versions or exact accepted client-submission versions.
 
-### SMTP configuration and recovery
+### Email configuration and recovery
 
-`IEmailSender` uses MailKit SMTP. Development settings target Mailpit without TLS. For a real SMTP server, configure these through environment variables or user secrets:
+`IEmailSender` defaults to MailKit SMTP. Development settings target Mailpit without TLS. For the Resend HTTPS provider, see the [Render deployment settings](#deploy-the-assessment-on-render). For a real SMTP server, configure these through environment variables or user secrets.
 
 ```text
 ExternalLinks__FrontendBaseUrl=https://your-frontend.example
@@ -334,9 +357,9 @@ Smtp__Password=<smtp-password>
 
 `SslOnConnect` supports implicit TLS, normally on port 465. `None` is permitted only in Development/Testing. TLS certificate validation uses MailKit's defaults. No credentials are committed. `FrontendBaseUrl` must be an absolute HTTPS URL, or HTTP on loopback for local use, without credentials, query or fragment; an optional base path is preserved. Configure the actual frontend URL before deploying. The sender defaults to no SMTP host outside Development; missing/invalid SMTP configuration produces a recoverable failed attempt rather than discarding the request.
 
-Request/link creation and a `Pending` delivery attempt commit **before** SMTP. Create/resend reject caller-owned database transactions so SMTP can never send an uncommitted link. Sending is synchronous and bounded to 30 seconds; after commit it finishes independently of HTTP disconnects. Failed SMTP still returns the created/retried request with a `Failed` attempt. Attempts store template, status, timestamps and only `SmtpDeliveryFailed` / `SmtpTimeout` failure codes. They never store bodies, subjects, URLs, SMTP responses or exception messages. Token-bearing plaintext is constructed only in memory for sending; protocol logging is disabled. Delivery status `Sent` means SMTP acceptance; signing progress `Sent` means the invitation/workflow was created, regardless of delivery outcome.
+Request/link creation and a `Pending` delivery attempt commit before the send. Create and resend reject caller-owned transactions to ensure the link is committed first. Each send has a 30-second limit and finishes independently of HTTP disconnects after commit. If delivery fails, the API returns the created or retried request with a `Failed` attempt. Attempts record the template, status, timestamps and a failure code of `EmailDeliveryFailed` or `EmailTimeout`. Earlier attempts can still report `SmtpDeliveryFailed` or `SmtpTimeout`. The email subject and token-bearing body are constructed in memory. Delivery status `Sent` means the provider accepted the email. Signing progress `Sent` records that the invitation was created regardless of the delivery outcome.
 
-Admin recovery is explicit: list the matter's requests (including when a creation response was lost), inspect delivery attempts, then call resend. A process crash or database failure after SMTP acceptance can leave an attempt `Pending` with an uncertain outcome; resend rotates the link and may deliver another email. No automatic retry is attempted. Revocation/archive racing an in-flight send may deliver an already-invalid link, which remains unusable. Restoration never revives archived links; an Admin may explicitly issue a fresh link after restoration.
+To recover, list the matter's requests, inspect the latest delivery attempt, and resend. A process crash or database failure after provider acceptance can leave an attempt `Pending` with an uncertain outcome. Resend rotates the link and may deliver another email. Revocation or archive during a send may deliver an already-invalid link. An Admin may issue a fresh link after restoration.
 
 Apply the `ScopedExternalLinks` migration with the setup migration command before using these endpoints.
 
@@ -354,7 +377,7 @@ One request asks one recipient for one PDF. Create it through the existing neste
 }
 ```
 
-`uploadStatus` is separate from link expiry/revocation and SMTP delivery. It follows `AwaitingUpload → Submitted → Accepted`, or `Submitted → CorrectionsRequested → Submitted` when another version is needed. A failed invitation does not discard the request. A failed correction email preserves the review decision and `CorrectionsRequested` state; the Admin can retry with resend. An expired or revoked link does not change the workflow status.
+`uploadStatus` is separate from link expiry/revocation and email delivery. It follows `AwaitingUpload → Submitted → Accepted`, or `Submitted → CorrectionsRequested → Submitted` when another version is needed. A failed invitation does not discard the request. A failed correction email preserves the review decision and `CorrectionsRequested` state; the Admin can retry with resend. An expired or revoked link does not change the workflow status.
 
 | Method | Route | Purpose |
 | --- | --- | --- |
@@ -372,7 +395,7 @@ Review uses the submission's **`documentVersionId`**, not its sequential version
 
 The first upload creates a `ReviewPending` document in the request's matter. Corrections append immutable versions to that same document. Client versions use `ClientUpload` as their source and a null Admin uploader ID. Acceptance changes the classification to `Accepted`. Only the exact accepted submission version is eligible for signing; other versions of that client document are rejected by the shared signing guard. Admin-created documents retain `Standard` classification. Request status/classification cannot be changed through document metadata edits, and the Admin version-upload endpoint cannot bypass client review.
 
-Submission status, document/version metadata, submission history, matter activity and an Admin notification commit in one EF transaction. Review status, the version-bound decision and activity also commit together; corrections include the rotated token and pending delivery attempt in that same commit before SMTP. Upload/review operations own their commit and reject caller-owned or ambient transactions before staging changes or files. Request/matter concurrency tokens reject concurrent uploads, reviews, revocation or archive changes; review lookups also check the persisted unreviewed state so a cached entity cannot overwrite an earlier decision. Archived matter writes are rejected. Public uploads reuse the existing 20 MiB PDF validation, private staging/promotion and failure cleanup. A successful upload returns its committed `Submitted` receipt without another database read or token check that could turn a committed upload into a reported failure. Failure to deliver the response does not delete the stored PDF. The filesystem/database crash-recovery limitation described above still applies.
+Submission status, document/version metadata, submission history, matter activity and an Admin notification commit in one EF transaction. Review status, the version-bound decision and activity also commit together; corrections include the rotated token and pending delivery attempt in that same commit before sending the email. Upload/review operations own their commit and reject caller-owned or ambient transactions before staging changes or files. Request/matter concurrency tokens reject concurrent uploads, reviews, revocation or archive changes; review lookups also check the persisted unreviewed state so a cached entity cannot overwrite an earlier decision. Archived matter writes are rejected. Public uploads reuse the existing 20 MiB PDF validation, private staging/promotion and failure cleanup. A successful upload returns its committed `Submitted` receipt without another database read or token check that could turn a committed upload into a reported failure. Failure to deliver the response does not delete the stored PDF. The filesystem/database crash-recovery limitation described above still applies.
 
 Submission notifications are saved with the submission's unit of work, identifying its request and version. Feature 9 extends the same paginated endpoint with current outstanding requirements and overdue work. There is no notification worker or separate delivery system.
 
@@ -414,7 +437,7 @@ Apply `TypedPdfSigning` with the setup migration command. Existing signing invit
 
 Feature 9 reuses `GET /api/v1/matters/{id}/activities` and `GET /api/v1/notifications`. Both require an authenticated Admin through the existing authorization policy. No new endpoints or database migration are needed.
 
-The matter history includes document uploads and versions, submission reviews, task and deadline changes, and signing progress. Creating an upload request, reissuing an external link, and revoking a request now also record dated activity. Activity and saved response/signing notifications commit with the workflow change; an unchanged operation adds no activity. Email-related activity describes the committed request or link change, while the existing delivery attempts report SMTP success or failure.
+The matter history includes document uploads and versions, submission reviews, task and deadline changes, and signing progress. Creating an upload request, reissuing an external link, and revoking a request now also record dated activity. Activity and saved response/signing notifications commit with the workflow change; an unchanged operation adds no activity. Email-related activity describes the committed request or link change, while the delivery attempts report provider acceptance or failure.
 
 The notification endpoint retains `search`, `page` and `pageSize` and the paged response envelope. Items now include `kind`, `isActionable`, optional `taskId`, `deadlineId` and `dueDate`, along with the existing matter, request, document version, message and timestamp fields:
 
@@ -430,7 +453,7 @@ No counts beyond the existing pagination total, read/unread state, reminder-mana
 
 ## Tests
 
-The currently included automated checks cover health and Swagger without accessing PostgreSQL or SMTP. Test JWT keys are generated at runtime. No Admin password is required.
+The automated checks cover health, Swagger, and the Resend request and rejection handling using a stub HTTP handler. Test JWT keys are generated at runtime.
 
 ```powershell
 dotnet test Amanet.sln --no-restore
